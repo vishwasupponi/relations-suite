@@ -1,6 +1,6 @@
 # Obsidian Relations Suite
 
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/vishwasupponi/obsidian-relations-suite/releases)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/vishwasupponi/relations-suite/releases)
 [![Obsidian](https://img.shields.io/badge/Obsidian-v1.4.0%2B-purple.svg)](https://obsidian.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
@@ -38,7 +38,7 @@
 ## 📥 Installation
 
 ### Method 1: Manual Installation (Recommended)
-1. Download the latest release assets (`manifest.json`, `main.js`, and `styles.css`) from the [Releases](https://github.com/vishwasupponi/obsidian-relations-suite/releases) page.
+1. Download the latest release assets (`manifest.json`, `main.js`, and `styles.css`) from the [Releases](https://github.com/vishwasupponi/relations-suite/releases) page.
 2. In your Obsidian vault, navigate to:
    ```
    <Your-Vault>/.obsidian/plugins/
@@ -56,7 +56,7 @@
 ### Method 2: Via BRAT (Beta Reviewers Auto-update Tester)
 1. Install and enable the **BRAT** plugin from Obsidian Community Plugins.
 2. Open BRAT settings and click **Add Beta plugin**.
-3. Enter `vishwasupponi/obsidian-relations-suite`.
+3. Enter `vishwasupponi/relations-suite`.
 
 ---
 
