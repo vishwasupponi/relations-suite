@@ -1,0 +1,15 @@
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Editor & IDE files
+.vscode/
+.idea/
+
+# Obsidian local settings
+data.json
+.obsidian/
+
+# Scratch & logs
+*.log

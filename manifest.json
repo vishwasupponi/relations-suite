@@ -1,0 +1,10 @@
+{
+  "id": "relations_suite",
+  "name": "Relations Suite",
+  "version": "1.0.0",
+  "minAppVersion": "1.4.0",
+  "description": "3 in 1 plugin suite featuring instant relationship property sync, interactive family tree view and interactive relations graph view",
+  "author": "Vishwas Upponi",
+  "authorUrl": "https://github.com/vishwasupponi",
+  "isDesktopOnly": false
+}

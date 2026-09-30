@@ -1,0 +1,1413 @@
+/* ========================================================================= */
+/* 1. RELATION SYNC STYLES                                                  */
+/* ========================================================================= */
+
+/* Simple Relation Sync Styles */
+
+.srs-container {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 10px;
+}
+
+.srs-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m, 8px);
+  transition: border-color 0.15s ease, background 0.15s ease;
+}
+
+.srs-row:hover {
+  border-color: var(--interactive-accent);
+}
+
+.srs-row-disabled {
+  opacity: 0.45;
+}
+
+/* â”€â”€ Toggle Checkmark Button (Green Filled Circle when Active, Dark when Inactive) â”€â”€ */
+button.srs-toggle-btn {
+  border: none !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+  padding: 4px !important;
+  border-radius: 50% !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  width: 24px !important;
+  height: 24px !important;
+  transition: all 0.15s ease !important;
+}
+
+button.srs-toggle-btn.srs-toggle-active {
+  background-color: #2e7d32 !important;
+  background: #2e7d32 !important;
+  color: #ffffff !important;
+  opacity: 1 !important;
+}
+
+button.srs-toggle-btn.srs-toggle-active svg {
+  stroke: #ffffff !important;
+  color: #ffffff !important;
+  fill: none !important;
+}
+
+button.srs-toggle-btn.srs-toggle-disabled {
+  background-color: rgba(255, 255, 255, 0.05) !important;
+  background: rgba(255, 255, 255, 0.05) !important;
+  color: #444444 !important;
+  opacity: 0.35 !important;
+}
+
+button.srs-toggle-btn.srs-toggle-disabled svg {
+  stroke: #555555 !important;
+  color: #555555 !important;
+}
+
+button.srs-toggle-btn:hover {
+  transform: scale(1.1) !important;
+}
+
+/* â”€â”€ Input Textboxes â”€â”€ */
+.srs-row input[type="text"] {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 10px;
+  font-size: var(--font-ui-small);
+  border-radius: var(--radius-s, 4px);
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.srs-row input[type="text"]:focus {
+  border-color: var(--interactive-accent);
+}
+
+.srs-arrow {
+  font-weight: bold;
+  opacity: 0.5;
+  user-select: none;
+  font-size: 16px;
+  flex-shrink: 0;
+}
+
+button.srs-delete-btn {
+  background: transparent !important;
+  border: none !important;
+  box-shadow: none !important;
+  cursor: pointer !important;
+  padding: 4px !important;
+  border-radius: var(--radius-s, 4px) !important;
+  color: var(--text-muted) !important;
+  display: flex !important;
+  align-items: center !important;
+  justify-content: center !important;
+  flex-shrink: 0 !important;
+  width: 28px !important;
+  height: 28px !important;
+}
+
+button.srs-delete-btn:hover {
+  color: var(--text-error, #f44336) !important;
+  background: var(--background-modifier-hover) !important;
+}
+
+.srs-empty {
+  text-align: center;
+  padding: 20px 12px;
+  color: var(--text-muted);
+  font-size: var(--font-ui-small);
+  border: 1px dashed var(--background-modifier-border);
+  border-radius: var(--radius-m, 8px);
+}
+
+
+/* ========================================================================= */
+/* 2. RELATION GRAPH VIEWER STYLES                                          */
+/* ========================================================================= */
+
+/* â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•
+   OBSIDIAN RELATION GRAPH VIEWER STYLES
+   Minimalist, Native Obsidian Graph Look with Glowing Path Highlighting
+   â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â•â• */
+
+.rpg-view-container {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  background-color: var(--background-primary);
+  color: var(--text-normal);
+  user-select: none;
+}
+
+/* â”€â”€ Top Control Bar â”€â”€ */
+.rpg-control-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 10px 16px;
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  z-index: 10;
+  flex-shrink: 0;
+}
+
+.rpg-control-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.rpg-field-group {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+  position: relative;
+}
+
+.rpg-field-group label {
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+}
+
+.rpg-control-bar input[type="text"],
+.rpg-control-bar select {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  padding: 5px 10px;
+  border-radius: var(--radius-s, 4px);
+  font-size: var(--font-ui-small);
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.rpg-control-bar input[type="text"]:focus,
+.rpg-control-bar select:focus {
+  border-color: var(--interactive-accent);
+}
+
+.rpg-input-person {
+  min-width: 160px;
+  width: 190px;
+}
+
+.rpg-input-base-key {
+  width: 110px;
+}
+
+.rpg-select-base-val {
+  min-width: 140px;
+  max-width: 220px;
+  cursor: pointer;
+}
+
+.rpg-swap-btn {
+  background: transparent;
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 50%;
+  width: 28px;
+  height: 28px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-weight: bold;
+  transition: all 0.15s ease;
+}
+
+.rpg-swap-btn:hover {
+  color: var(--text-normal);
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+}
+
+/* â”€â”€ Interactive Property Pill Tag Selector â”€â”€ */
+.rpg-pill-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  min-height: 34px;
+  position: relative;
+  cursor: text;
+  flex: 1;
+  min-width: 260px;
+  max-width: 100%;
+  transition: border-color 0.15s ease;
+}
+
+.rpg-pill-container:focus-within {
+  border-color: var(--interactive-accent);
+}
+
+.setting-item-control .rpg-pill-container {
+  min-width: 240px;
+  max-width: 380px;
+}
+
+.rpg-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px;
+  background: var(--background-modifier-hover);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--text-normal);
+  user-select: none;
+}
+
+.rpg-pill-remove {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  font-size: 12px;
+  line-height: 1;
+  color: var(--text-muted);
+  transition: all 0.1s ease;
+}
+
+.rpg-pill-remove:hover {
+  background: var(--text-error, #f44336);
+  color: #ffffff;
+}
+
+.rpg-pill-input {
+  flex: 1;
+  min-width: 110px;
+  border: none !important;
+  background: transparent !important;
+  padding: 2px 4px !important;
+  outline: none !important;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  box-shadow: none !important;
+}
+
+.rpg-pill-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  z-index: 10000;
+  margin-top: 4px;
+}
+
+.rpg-pill-item {
+  padding: 6px 12px;
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  transition: background 0.1s ease;
+}
+
+.rpg-pill-item:hover,
+.rpg-pill-item.is-selected {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+/* â”€â”€ Autocomplete Dropdown List for Person A & B â”€â”€ */
+.rpg-suggest-popup {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+  z-index: 9999;
+  margin-top: 4px;
+}
+
+.rpg-suggest-item {
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  transition: background 0.1s ease;
+}
+
+.rpg-suggest-item:hover,
+.rpg-suggest-item.is-selected {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+/* â”€â”€ Status & Stepper Bar â”€â”€ */
+.rpg-status-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  font-size: var(--font-ui-small);
+  padding-top: 4px;
+  border-top: 1px solid var(--background-modifier-border);
+}
+
+.rpg-stepper {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 500;
+}
+
+.rpg-stepper-btn {
+  padding: 2px 8px;
+  font-size: 11px;
+  border-radius: 4px;
+  cursor: pointer;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+}
+
+.rpg-stepper-btn:hover:not(:disabled) {
+  border-color: var(--interactive-accent);
+  color: var(--interactive-accent);
+}
+
+.rpg-stepper-btn:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.rpg-breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.rpg-breadcrumb-node {
+  color: var(--text-normal);
+  font-weight: 600;
+}
+
+.rpg-breadcrumb-edge {
+  color: #00f0ff;
+  font-style: italic;
+  font-size: 11px;
+}
+
+.rpg-view-options {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.rpg-zoom-btn {
+  padding: 2px 8px;
+  font-size: 12px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 4px;
+  cursor: pointer;
+  color: var(--text-normal);
+}
+
+.rpg-zoom-btn:hover {
+  background: var(--background-modifier-hover);
+}
+
+/* â”€â”€ SVG Canvas Viewport (Clean Obsidian Theme) â”€â”€ */
+.rpg-canvas-wrapper {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  position: relative;
+  background: var(--background-primary);
+  cursor: grab;
+}
+
+.rpg-canvas-wrapper:active {
+  cursor: grabbing;
+}
+
+.rpg-svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* â”€â”€ Visible Edge Treatments (Guaranteed Stroke Display) â”€â”€ */
+.rpg-edge-bg {
+  stroke: var(--text-faint, #777777) !important;
+  stroke-width: 1px !important;
+  opacity: 0.35 !important;
+  transition: opacity 0.2s ease;
+}
+
+.rpg-edge-halo {
+  stroke: #00f0ff !important;
+  stroke-width: 7px !important;
+  stroke-linecap: round !important;
+  opacity: 0.35 !important;
+  filter: drop-shadow(0 0 8px #00f0ff) !important;
+  pointer-events: none;
+}
+
+.rpg-edge-active {
+  stroke: #00f0ff !important;
+  stroke-width: 2.8px !important;
+  stroke-linecap: round !important;
+  stroke-dasharray: 8, 4 !important;
+  animation: rpg-dash-flow 1.2s linear infinite !important;
+  filter: drop-shadow(0 0 6px #00f0ff) !important;
+  opacity: 1 !important;
+  pointer-events: stroke;
+}
+
+.rpg-edge-label-text {
+  font-size: 11px !important;
+  font-weight: 600 !important;
+  fill: #00f0ff !important;
+  text-anchor: middle !important;
+  dominant-baseline: central !important;
+  pointer-events: none !important;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 4px #00f0ff) !important;
+}
+
+/* â”€â”€ Clean Native Obsidian Nodes â”€â”€ */
+
+/* Background / Unrelated nodes: small neat dots */
+.rpg-node-bg circle {
+  fill: var(--text-faint, #666666);
+  stroke: transparent;
+  stroke-width: 0;
+  opacity: 0.45;
+  cursor: pointer;
+  transition: opacity 0.2s ease, transform 0.2s ease;
+}
+
+.rpg-node-bg text {
+  font-size: 10px;
+  fill: var(--text-muted, #888888);
+  opacity: 0.55;
+  text-anchor: middle;
+  dominant-baseline: hanging;
+  pointer-events: none;
+}
+
+/* Intermediate Nodes (along the path): highlighted dots */
+.rpg-node-intermediate circle {
+  fill: #818cf8;
+  stroke: #c7d2fe;
+  stroke-width: 1.5px;
+  opacity: 0.95;
+  cursor: pointer;
+  filter: drop-shadow(0 0 4px rgba(129, 140, 248, 0.6));
+}
+
+.rpg-node-intermediate text {
+  font-size: 11px;
+  font-weight: 600;
+  fill: var(--text-normal, #ffffff);
+  text-anchor: middle;
+  dominant-baseline: hanging;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.9));
+}
+
+/* Endpoint Nodes (Person A & Person B): vibrant dots */
+.rpg-node-endpoint circle {
+  fill: #00f0ff;
+  stroke: #ffffff;
+  stroke-width: 2px;
+  opacity: 1;
+  cursor: pointer;
+  filter: drop-shadow(0 0 6px #00f0ff);
+}
+
+.rpg-node-endpoint text {
+  font-size: 12px;
+  font-weight: 700;
+  fill: #ffffff;
+  text-anchor: middle;
+  dominant-baseline: hanging;
+  pointer-events: none;
+  filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 6px #00f0ff);
+}
+
+/* Hover effect on nodes */
+.rpg-node:hover circle {
+  transform: scale(1.3);
+  opacity: 1;
+}
+
+.rpg-node:hover text {
+  opacity: 1;
+  fill: var(--text-normal, #ffffff);
+}
+
+/* Floating Hover Tooltip */
+.rpg-tooltip {
+  position: absolute;
+  padding: 8px 12px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-m, 8px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  pointer-events: none;
+  z-index: 1000;
+  max-width: 260px;
+  display: none;
+}
+
+.rpg-tooltip h4 {
+  margin: 0 0 4px 0;
+  font-size: 13px;
+  color: var(--interactive-accent);
+}
+
+.rpg-tooltip-prop {
+  margin: 2px 0;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.rpg-empty-state {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  text-align: center;
+  color: var(--text-muted);
+  font-size: var(--font-ui-medium);
+  pointer-events: none;
+  max-width: 420px;
+  line-height: 1.5;
+}
+
+/* â”€â”€ Animations â”€â”€ */
+@keyframes rpg-dash-flow {
+  to {
+    stroke-dashoffset: -24;
+  }
+}
+
+
+/* ========================================================================= */
+/* 3. FAMILY TREE VIEWER STYLES                                             */
+/* ========================================================================= */
+
+/* Obsidian Family Tree Viewer â€” Styles */
+
+.family-tree-view-root {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background-color: var(--background-primary, #0f1218);
+  color: var(--text-normal, #f1f5f9);
+  position: relative;
+  user-select: none;
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Multi-Row Toolbar â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.ft-toolbar {
+  background: var(--background-secondary);
+  border-bottom: 1px solid var(--background-modifier-border);
+  display: flex;
+  flex-direction: column;
+  padding: 8px 16px;
+  z-index: 30;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.1);
+  flex-shrink: 0;
+  gap: 8px;
+}
+
+.ft-toolbar-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  width: 100%;
+}
+
+.ft-toolbar-left-group {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.ft-toolbar-center {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+
+.ft-filter-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.ft-filter-label {
+  font-size: var(--font-ui-small);
+  font-weight: 500;
+  color: var(--text-normal);
+  white-space: nowrap;
+}
+
+.ft-select {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  border-radius: var(--radius-s, 4px);
+  padding: 4px 8px;
+  font-size: var(--font-ui-small);
+  cursor: pointer;
+  outline: none;
+  transition: border-color 0.15s ease;
+}
+
+.ft-select:focus,
+.ft-select:hover {
+  border-color: var(--interactive-accent);
+}
+
+.ft-divider-v {
+  width: 1px;
+  height: 18px;
+  background-color: var(--background-modifier-border);
+  margin: 0 2px;
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Search Person Control â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.ft-search-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  position: relative;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.ft-search-input {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  border-radius: var(--radius-s, 4px);
+  padding: 4px 8px;
+  font-size: var(--font-ui-small);
+  outline: none;
+  width: 220px;
+  transition: border-color 0.15s ease;
+}
+
+.ft-search-input:focus {
+  border-color: var(--interactive-accent);
+}
+
+.ft-toolbar-right {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ft-legend {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: var(--font-ui-small);
+  color: var(--text-muted);
+}
+
+.ft-legend-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.ft-legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+
+.ft-legend-dot.male { background-color: #38bdf8; }
+.ft-legend-dot.female { background-color: #f472b6; }
+.ft-legend-dot.neutral { background-color: #a855f7; }
+.ft-legend-line { width: 14px; height: 2px; background-color: var(--text-muted); }
+
+.ft-btn {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  padding: 4px 10px;
+  border-radius: var(--radius-s, 4px);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  transition: all 0.15s ease;
+}
+
+.ft-btn:hover {
+  border-color: var(--interactive-accent);
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.ft-btn-group {
+  display: flex;
+  align-items: center;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  overflow: hidden;
+}
+
+.ft-btn-sm {
+  background: none;
+  border: none;
+  color: var(--text-normal);
+  font-size: 13px;
+  font-weight: bold;
+  padding: 3px 8px;
+  cursor: pointer;
+  line-height: 1;
+  transition: background 0.15s ease;
+}
+
+.ft-btn-sm:hover {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+.ft-zoom-readout {
+  font-size: var(--font-ui-smaller, 11px);
+  font-family: var(--font-monospace, monospace);
+  color: var(--text-muted);
+  padding: 0 6px;
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Canvas Container â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.ft-canvas-container {
+  flex: 1;
+  width: 100%;
+  height: 100%;
+  position: relative;
+  overflow: hidden;
+  cursor: grab;
+  background: radial-gradient(circle at 50% 50%, rgba(30, 41, 59, 0.25) 0%, rgba(15, 18, 24, 0.6) 100%);
+}
+
+.ft-canvas-container:active {
+  cursor: grabbing;
+}
+
+.ft-viewport {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  transform-origin: 0 0;
+}
+
+/* SVG Connection Lines */
+.ft-svg-connections {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  pointer-events: none;
+  z-index: 2;
+  overflow: visible !important;
+}
+
+.ft-tree-line {
+  stroke-width: 1.5px;
+  fill: none;
+  stroke-linejoin: round;
+  stroke-linecap: round;
+  opacity: 0.88;
+}
+
+.ft-marriage-line {
+  stroke-width: 2px;
+  stroke-dasharray: none;
+  fill: none;
+  opacity: 1;
+}
+
+.ft-marriage-distant {
+  stroke-width: 1.6px;
+  stroke-dasharray: 5, 4;
+}
+
+.ft-union-ring {
+  fill: var(--background-primary, #0f1218);
+  stroke-width: 1.5px;
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Person Cards â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.ft-person-card, .ft-person-card * {
+  box-sizing: border-box;
+}
+
+.ft-person-card {
+  box-sizing: border-box;
+  position: absolute;
+  min-width: 154px;
+  width: auto;
+  min-height: 44px;
+  background: var(--background-secondary, #151b26);
+  border: 1.5px solid var(--background-modifier-border, #232c3d);
+  border-radius: 8px;
+  padding: 6px 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.5);
+  cursor: pointer;
+  transition: border-color 0.2s ease, box-shadow 0.2s ease, transform 0.2s ease;
+  z-index: 10;
+}
+
+.ft-person-card:hover {
+  border-color: #38bdf8;
+  box-shadow: 0 0 16px rgba(56, 189, 248, 0.35);
+  transform: translateY(-2px);
+}
+
+/* Search Focus Glow Highlight */
+.ft-person-card.ft-card-highlighted {
+  border-color: #00f0ff !important;
+  box-shadow: 0 0 25px rgba(0, 240, 255, 0.9), 0 0 12px #00f0ff !important;
+  animation: ft-pulse-glow 1.5s infinite alternate ease-in-out;
+  z-index: 50 !important;
+}
+
+@keyframes ft-pulse-glow {
+  0% {
+    box-shadow: 0 0 15px rgba(0, 240, 255, 0.6);
+    transform: scale(1.02);
+  }
+  100% {
+    box-shadow: 0 0 35px rgba(0, 240, 255, 1), 0 0 18px #38bdf8;
+    transform: scale(1.08);
+  }
+}
+
+.ft-gender-badge {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.ft-gender-male {
+  background-color: #38bdf8;
+  box-shadow: 0 0 8px #38bdf8;
+}
+
+.ft-gender-female {
+  background-color: #f472b6;
+  box-shadow: 0 0 8px #f472b6;
+}
+
+.ft-gender-neutral {
+  background-color: #a855f7;
+  box-shadow: 0 0 8px #a855f7;
+}
+
+.ft-card-info {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ft-card-name {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-normal, #f1f5f9);
+  white-space: nowrap;
+  overflow: visible;
+}
+
+.ft-card-desc {
+  font-size: 10px;
+  color: var(--text-muted, #94a3b8);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Card Multiple Properties Stacked Rows */
+.ft-card-props-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1.5px;
+  margin-top: 2px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.ft-card-prop-row {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+  font-size: 10px;
+  line-height: 1.25;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ft-card-prop-key {
+  color: var(--text-muted, #94a3b8);
+  font-weight: 500;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.ft-card-prop-val {
+  color: var(--text-normal, #e2e8f0);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Collapse / Expand Toggle Button â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.ft-collapse-toggle {
+  position: absolute;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: #101622;
+  border: 1.5px solid #00f0ff;
+  color: #00f0ff;
+  font-size: 13px;
+  font-weight: bold;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+  z-index: 25;
+  transition: all 0.15s ease;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.7);
+}
+
+.ft-collapse-toggle:hover {
+  transform: scale(1.2);
+  box-shadow: 0 0 12px currentColor;
+}
+
+.ft-collapse-toggle.is-collapsed {
+  background: #3b1d28;
+  border-color: #f43f5e !important;
+  color: #f43f5e !important;
+}
+
+.ft-collapse-toggle.is-collapsed:hover {
+  background: #f43f5e;
+  color: #ffffff !important;
+  box-shadow: 0 0 12px #f43f5e;
+}
+
+/* Generation Guide Marks */
+.ft-gen-guide {
+  position: absolute;
+  left: 20px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: #475569;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.ft-gen-line {
+  width: 140px;
+  height: 1px;
+  background-color: rgba(71, 85, 105, 0.4);
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Floating Person Details Tooltip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.ft-person-tooltip {
+  position: fixed;
+  z-index: 1000;
+  pointer-events: none;
+  width: 360px;
+  background: rgba(18, 23, 33, 0.96);
+  backdrop-filter: blur(14px);
+  border: 1px solid #334155;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75), 0 0 1px 1px rgba(56, 189, 248, 0.35);
+  padding: 14px 16px;
+  color: #e2e8f0;
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity 0.15s ease, transform 0.15s ease;
+  display: none;
+}
+
+.ft-person-tooltip.visible {
+  display: block;
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.ft-tt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.7);
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+
+.ft-tt-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.ft-tt-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.2px;
+}
+
+.ft-tt-gen-badge {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(30, 41, 59, 0.9);
+  color: #38bdf8;
+  font-family: var(--font-monospace, monospace);
+  font-weight: 600;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+
+.ft-tt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+
+.ft-tt-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  font-size: 13px;
+}
+
+.ft-tt-key {
+  color: #94a3b8;
+  font-weight: 500;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.ft-tt-val {
+  color: #f1f5f9;
+  font-weight: 600;
+  font-size: 13px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ft-tt-val-base {
+  color: #38bdf8;
+  font-family: var(--font-monospace, monospace);
+  font-size: 12.5px;
+}
+
+.ft-tt-footer {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(51, 65, 85, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: #64748b;
+}
+
+.ft-tt-hint {
+  color: #38bdf8;
+  font-weight: 600;
+  font-size: 11.5px;
+}
+
+/* Empty State / Notice */
+.ft-empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--text-muted, #94a3b8);
+  gap: 12px;
+  text-align: center;
+  padding: 20px;
+}
+
+.ft-empty-icon {
+  font-size: 32px;
+  opacity: 0.7;
+}
+
+.ft-empty-text {
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.ft-empty-sub {
+  font-size: 12px;
+  color: var(--text-faint, #64748b);
+  max-width: 380px;
+}
+
+/* Settings Tab Styling */
+.ft-settings-section-header {
+  margin-top: 24px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #38bdf8;
+  border-bottom: 1px solid var(--background-modifier-border, #2d3748);
+  padding-bottom: 4px;
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Suggest Popup (Autocomplete) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.ft-suggest-popup {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 220px;
+  overflow-y: auto;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.3);
+  z-index: 9999;
+  margin-top: 4px;
+  padding: 4px 0;
+}
+
+.ft-suggest-item {
+  padding: 6px 10px;
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  transition: background 0.1s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ft-suggest-item:hover,
+.ft-suggest-item.is-selected {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+/* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Card Properties & Multi-Select Pill Tag Selector â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
+.ft-pill-wrapper {
+  position: relative;
+  display: inline-flex;
+}
+
+.ft-pill-container {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  padding: 3px 6px;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  min-height: 28px;
+  position: relative;
+  cursor: text;
+  min-width: 170px;
+  max-width: 380px;
+  transition: border-color 0.15s ease;
+}
+
+.ft-pill-container:focus-within {
+  border-color: var(--interactive-accent);
+}
+
+.ft-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  background: var(--background-modifier-hover);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 12px;
+  font-size: var(--font-ui-smaller, 11px);
+  font-weight: 500;
+  color: var(--text-normal);
+  user-select: none;
+}
+
+.ft-pill-remove {
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  color: var(--text-muted);
+  transition: all 0.1s ease;
+}
+
+.ft-pill-remove:hover {
+  background: var(--text-error, #f44336);
+  color: #ffffff;
+}
+
+.ft-pill-input {
+  flex: 1;
+  min-width: 80px;
+  border: none !important;
+  background: transparent !important;
+  padding: 1px 4px !important;
+  outline: none !important;
+  color: var(--text-normal);
+  font-size: var(--font-ui-small);
+  box-shadow: none !important;
+}
+
+.ft-pill-dropdown {
+  position: absolute;
+  top: 100%;
+  left: 0;
+  right: 0;
+  max-height: 180px;
+  overflow-y: auto;
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: var(--radius-s, 4px);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  z-index: 10000;
+  margin-top: 4px;
+  padding: 4px 0;
+}
+
+.ft-pill-item {
+  padding: 5px 10px;
+  cursor: pointer;
+  font-size: var(--font-ui-small);
+  color: var(--text-normal);
+  transition: background 0.1s ease;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.ft-pill-item:hover,
+.ft-pill-item.is-selected {
+  background: var(--background-modifier-hover);
+  color: var(--interactive-accent);
+}
+
+
+/* Single-select filter text inputs with autocomplete */
+.ft-input-filter {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  border-radius: var(--radius-s, 4px);
+  padding: 4px 8px;
+  font-size: var(--font-ui-small);
+  outline: none;
+  width: 130px;
+  transition: border-color 0.15s ease;
+}
+
+.ft-input-filter:focus {
+  border-color: var(--interactive-accent);
+}
+
+.rpg-input-base-val {
+  background: var(--background-primary);
+  border: 1px solid var(--background-modifier-border);
+  color: var(--text-normal);
+  border-radius: var(--radius-s, 4px);
+  padding: 4px 8px;
+  font-size: var(--font-ui-small);
+  outline: none;
+  min-width: 130px;
+  max-width: 220px;
+  transition: border-color 0.15s ease;
+}
+
+.rpg-input-base-val:focus {
+  border-color: var(--interactive-accent);
+}
