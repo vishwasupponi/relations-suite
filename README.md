@@ -43,10 +43,10 @@
    ```
    <Your-Vault>/.obsidian/plugins/
    ```
-3. Create a new folder named `relations_suite`.
+3. Create a new folder named `relations-suite`.
 4. Copy `manifest.json`, `main.js`, and `styles.css` into that folder:
    ```
-   .obsidian/plugins/relations_suite/
+   .obsidian/plugins/relations-suite/
    ├── manifest.json
    ├── main.js
    └── styles.css
