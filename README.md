@@ -1,4 +1,4 @@
-# Relations Suite for Obsidian
+# Obsidian Relations Suite
 
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](https://github.com/vishwasupponi/obsidian-relations-suite/releases)
 [![Obsidian](https://img.shields.io/badge/Obsidian-v1.4.0%2B-purple.svg)](https://obsidian.md)
