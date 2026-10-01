@@ -15,5 +15,5 @@ data.json
 *.log
 
 # Local release build folder (ready for Obsidian)
-release/
+/relations-suite/
 
