@@ -13,3 +13,7 @@ data.json
 
 # Scratch & logs
 *.log
+
+# Local release build folder (ready for Obsidian)
+release/
+
