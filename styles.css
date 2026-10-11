@@ -471,7 +471,7 @@
 
 .rpg-canvas-wrapper.is-dragging *,
 .rpg-canvas-wrapper.is-panning * {
-  cursor: grabbing !important;
+  cursor: grabbing;
 }
 
 .rpg-svg {
@@ -526,9 +526,9 @@
   -webkit-user-select: none;
 }
 
-.rpg-node:active,
-.rpg-node.is-dragging {
-  cursor: grabbing !important;
+.rpg-svg .rpg-node:active,
+.rpg-svg .rpg-node.is-dragging {
+  cursor: grabbing;
 }
 
 /* Background / Unrelated nodes: crisp native Obsidian dots */
@@ -541,13 +541,13 @@
   transition: opacity 0.2s ease, transform 0.2s ease, fill 0.2s ease;
 }
 
-.rpg-node:active circle,
-.rpg-node.is-dragging circle,
-.rpg-node-intermediate:active circle,
-.rpg-node-intermediate.is-dragging circle,
-.rpg-node-endpoint:active circle,
-.rpg-node-endpoint.is-dragging circle {
-  cursor: grabbing !important;
+.rpg-svg .rpg-node:active circle,
+.rpg-svg .rpg-node.is-dragging circle,
+.rpg-svg .rpg-node-intermediate:active circle,
+.rpg-svg .rpg-node-intermediate.is-dragging circle,
+.rpg-svg .rpg-node-endpoint:active circle,
+.rpg-svg .rpg-node-endpoint.is-dragging circle {
+  cursor: grabbing;
 }
 
 .rpg-node-bg text {
@@ -604,104 +604,104 @@
 /* ─── Native Obsidian-Style Graph Node Hover & Dimming ─── */
 
 /* 1. Dimmed Non-Connected Nodes */
-.rpg-node.rpg-node-dimmed circle {
-  opacity: 0.12 !important;
-  filter: none !important;
+.rpg-svg .rpg-node.rpg-node-dimmed circle {
+  opacity: 0.12;
+  filter: none;
   transition: opacity 0.18s ease;
 }
 
-.rpg-node.rpg-node-dimmed text {
-  opacity: 0 !important;
+.rpg-svg .rpg-node.rpg-node-dimmed text {
+  opacity: 0;
   transition: opacity 0.18s ease;
 }
 
 /* 2. Focused Hovered Node */
-.rpg-node.rpg-node-hover-focus circle {
-  opacity: 1 !important;
-  stroke: var(--interactive-accent, #00f0ff) !important;
-  stroke-width: 2.5px !important;
-  filter: drop-shadow(0 0 8px var(--interactive-accent, #00f0ff)) !important;
+.rpg-svg .rpg-node.rpg-node-hover-focus circle {
+  opacity: 1;
+  stroke: var(--interactive-accent, #00f0ff);
+  stroke-width: 2.5px;
+  filter: drop-shadow(0 0 8px var(--interactive-accent, #00f0ff));
   transform: scale(1.35);
   transition: transform 0.18s ease, stroke 0.18s ease, filter 0.18s ease;
 }
 
-.rpg-node-bg.rpg-node-hover-focus circle {
-  fill: var(--interactive-accent, #00f0ff) !important;
+.rpg-svg .rpg-node-bg.rpg-node-hover-focus circle {
+  fill: var(--interactive-accent, #00f0ff);
 }
 
-.rpg-node.rpg-node-hover-focus text {
-  opacity: 1 !important;
-  fill: var(--text-normal, #ffffff) !important;
-  font-weight: 700 !important;
-  font-size: 12px !important;
-  filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 6px var(--interactive-accent, #00f0ff)) !important;
+.rpg-svg .rpg-node.rpg-node-hover-focus text {
+  opacity: 1;
+  fill: var(--text-normal, #ffffff);
+  font-weight: 700;
+  font-size: 12px;
+  filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 6px var(--interactive-accent, #00f0ff));
   transition: opacity 0.18s ease;
 }
 
 /* 3. Directly Connected Neighbor Notes (Slightly Highlighted) */
-.rpg-node.rpg-node-hover-neighbor circle {
-  opacity: 1 !important;
-  stroke: #c7d2fe !important;
-  stroke-width: 1.8px !important;
-  filter: drop-shadow(0 0 5px rgba(129, 140, 248, 0.7)) !important;
+.rpg-svg .rpg-node.rpg-node-hover-neighbor circle {
+  opacity: 1;
+  stroke: #c7d2fe;
+  stroke-width: 1.8px;
+  filter: drop-shadow(0 0 5px rgba(129, 140, 248, 0.7));
   transform: scale(1.2);
   transition: transform 0.18s ease, stroke 0.18s ease, filter 0.18s ease;
 }
 
-.rpg-node-bg.rpg-node-hover-neighbor circle {
-  fill: #818cf8 !important;
+.rpg-svg .rpg-node-bg.rpg-node-hover-neighbor circle {
+  fill: #818cf8;
 }
 
-.rpg-node.rpg-node-hover-neighbor text {
-  opacity: 1 !important;
-  fill: var(--text-normal, #ffffff) !important;
-  font-weight: 600 !important;
-  font-size: 11px !important;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.9)) !important;
+.rpg-svg .rpg-node.rpg-node-hover-neighbor text {
+  opacity: 1;
+  fill: var(--text-normal, #ffffff);
+  font-weight: 600;
+  font-size: 11px;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.9));
   transition: opacity 0.18s ease;
 }
 
 /* 4. Dimmed Edges */
-.rpg-edge-bg.rpg-edge-dimmed,
-.rpg-edge-halo.rpg-edge-dimmed,
-.rpg-edge-active.rpg-edge-dimmed {
-  opacity: 0.04 !important;
-  stroke-opacity: 0.04 !important;
+.rpg-svg .rpg-edge-bg.rpg-edge-dimmed,
+.rpg-svg .rpg-edge-halo.rpg-edge-dimmed,
+.rpg-svg .rpg-edge-active.rpg-edge-dimmed {
+  opacity: 0.04;
+  stroke-opacity: 0.04;
   transition: opacity 0.18s ease;
 }
 
-.rpg-edge-label-text.rpg-edge-text-dimmed {
-  opacity: 0.04 !important;
+.rpg-svg .rpg-edge-label-text.rpg-edge-text-dimmed {
+  opacity: 0.04;
   transition: opacity 0.18s ease;
 }
 
 /* 5. Highlighted Connected Edges */
-.rpg-edge-bg.rpg-edge-hover-highlight {
-  stroke: var(--interactive-accent, #818cf8) !important;
-  stroke-width: 2px !important;
-  stroke-opacity: 0.9 !important;
-  opacity: 0.9 !important;
-  filter: drop-shadow(0 0 5px rgba(129, 140, 248, 0.6)) !important;
+.rpg-svg .rpg-edge-bg.rpg-edge-hover-highlight {
+  stroke: var(--interactive-accent, #818cf8);
+  stroke-width: 2px;
+  stroke-opacity: 0.9;
+  opacity: 0.9;
+  filter: drop-shadow(0 0 5px rgba(129, 140, 248, 0.6));
   transition: stroke 0.18s ease, opacity 0.18s ease, stroke-width 0.18s ease;
 }
 
-.rpg-edge-active.rpg-edge-hover-highlight {
-  stroke-width: 3.5px !important;
-  opacity: 1 !important;
+.rpg-svg .rpg-edge-active.rpg-edge-hover-highlight {
+  stroke-width: 3.5px;
+  opacity: 1;
 }
 
-.rpg-edge-label-text.rpg-edge-text-highlight {
-  opacity: 1 !important;
-  font-weight: 700 !important;
+.rpg-svg .rpg-edge-label-text.rpg-edge-text-highlight {
+  opacity: 1;
+  font-weight: 700;
 }
 
 /* Inspector Card docked in the Right Corner of the Canvas */
-.rpg-tooltip {
+.rpg-canvas-wrapper .rpg-tooltip {
   position: absolute;
   top: 20px;
   right: 20px;
-  left: auto !important;
-  bottom: auto !important;
+  left: auto;
+  bottom: auto;
   z-index: 1000;
   pointer-events: none;
   width: 340px;
