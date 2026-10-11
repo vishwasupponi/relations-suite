@@ -459,10 +459,19 @@
   position: relative;
   background: var(--background-primary);
   cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-.rpg-canvas-wrapper:active {
+.rpg-canvas-wrapper:active,
+.rpg-canvas-wrapper.is-dragging,
+.rpg-canvas-wrapper.is-panning {
   cursor: grabbing;
+}
+
+.rpg-canvas-wrapper.is-dragging *,
+.rpg-canvas-wrapper.is-panning * {
+  cursor: grabbing !important;
 }
 
 .rpg-svg {
@@ -471,12 +480,12 @@
   display: block;
 }
 
-/* â”€â”€ Visible Edge Treatments (Guaranteed Stroke Display) â”€â”€ */
+/* ─── Visible Edge Treatments (Guaranteed Stroke Display) ─── */
 .rpg-edge-bg {
-  stroke: var(--text-faint, #777777);
-  stroke-width: 1px;
-  opacity: 0.35;
-  transition: opacity 0.2s ease;
+  stroke: var(--graph-line, #94a3b8);
+  stroke-width: 2px;
+  opacity: 0.85;
+  transition: opacity 0.2s ease, stroke 0.2s ease;
 }
 
 .rpg-edge-halo {
@@ -496,7 +505,7 @@
   animation: rpg-dash-flow 1.2s linear infinite;
   filter: drop-shadow(0 0 6px #00f0ff);
   opacity: 1;
-  pointer-events: stroke;
+  pointer-events: none;
 }
 
 .rpg-edge-label-text {
@@ -506,28 +515,50 @@
   text-anchor: middle;
   dominant-baseline: central;
   pointer-events: none;
-  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.9)) drop-shadow(0 0 4px #00f0ff);
+  filter: drop-shadow(0 0 3px #000000) drop-shadow(0 1px 3px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 4px #00f0ff);
 }
 
-/* â”€â”€ Clean Native Obsidian Nodes â”€â”€ */
+/* ─── Clean Native Obsidian Nodes ─── */
 
-/* Background / Unrelated nodes: small neat dots */
+.rpg-node {
+  cursor: grab;
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+.rpg-node:active,
+.rpg-node.is-dragging {
+  cursor: grabbing !important;
+}
+
+/* Background / Unrelated nodes: crisp native Obsidian dots */
 .rpg-node-bg circle {
-  fill: var(--text-faint, #666666);
-  stroke: transparent;
-  stroke-width: 0;
-  opacity: 0.45;
-  cursor: pointer;
-  transition: opacity 0.2s ease, transform 0.2s ease;
+  fill: var(--graph-node, #e2e8f0);
+  stroke: var(--background-primary, #18181b);
+  stroke-width: 1.5px;
+  opacity: 0.95;
+  cursor: grab;
+  transition: opacity 0.2s ease, transform 0.2s ease, fill 0.2s ease;
+}
+
+.rpg-node:active circle,
+.rpg-node.is-dragging circle,
+.rpg-node-intermediate:active circle,
+.rpg-node-intermediate.is-dragging circle,
+.rpg-node-endpoint:active circle,
+.rpg-node-endpoint.is-dragging circle {
+  cursor: grabbing !important;
 }
 
 .rpg-node-bg text {
-  font-size: 10px;
-  fill: var(--text-muted, #888888);
-  opacity: 0.55;
+  font-size: 11px;
+  font-weight: 500;
+  fill: var(--text-normal, #f1f5f9);
+  opacity: 0.92;
   text-anchor: middle;
   dominant-baseline: hanging;
   pointer-events: none;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.95));
 }
 
 /* Intermediate Nodes (along the path): highlighted dots */
@@ -536,7 +567,7 @@
   stroke: #c7d2fe;
   stroke-width: 1.5px;
   opacity: 0.95;
-  cursor: pointer;
+  cursor: grab;
   filter: drop-shadow(0 0 4px rgba(129, 140, 248, 0.6));
 }
 
@@ -556,7 +587,7 @@
   stroke: #ffffff;
   stroke-width: 2px;
   opacity: 1;
-  cursor: pointer;
+  cursor: grab;
   filter: drop-shadow(0 0 6px #00f0ff);
 }
 
@@ -570,43 +601,240 @@
   filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 6px #00f0ff);
 }
 
-/* Hover effect on nodes */
-.rpg-node:hover circle {
-  transform: scale(1.3);
-  opacity: 1;
+/* ─── Native Obsidian-Style Graph Node Hover & Dimming ─── */
+
+/* 1. Dimmed Non-Connected Nodes */
+.rpg-node.rpg-node-dimmed circle {
+  opacity: 0.12 !important;
+  filter: none !important;
+  transition: opacity 0.18s ease;
 }
 
-.rpg-node:hover text {
-  opacity: 1;
-  fill: var(--text-normal, #ffffff);
+.rpg-node.rpg-node-dimmed text {
+  opacity: 0 !important;
+  transition: opacity 0.18s ease;
 }
 
-/* Floating Hover Tooltip */
+/* 2. Focused Hovered Node */
+.rpg-node.rpg-node-hover-focus circle {
+  opacity: 1 !important;
+  stroke: var(--interactive-accent, #00f0ff) !important;
+  stroke-width: 2.5px !important;
+  filter: drop-shadow(0 0 8px var(--interactive-accent, #00f0ff)) !important;
+  transform: scale(1.35);
+  transition: transform 0.18s ease, stroke 0.18s ease, filter 0.18s ease;
+}
+
+.rpg-node-bg.rpg-node-hover-focus circle {
+  fill: var(--interactive-accent, #00f0ff) !important;
+}
+
+.rpg-node.rpg-node-hover-focus text {
+  opacity: 1 !important;
+  fill: var(--text-normal, #ffffff) !important;
+  font-weight: 700 !important;
+  font-size: 12px !important;
+  filter: drop-shadow(0 1px 4px rgba(0, 0, 0, 0.95)) drop-shadow(0 0 6px var(--interactive-accent, #00f0ff)) !important;
+  transition: opacity 0.18s ease;
+}
+
+/* 3. Directly Connected Neighbor Notes (Slightly Highlighted) */
+.rpg-node.rpg-node-hover-neighbor circle {
+  opacity: 1 !important;
+  stroke: #c7d2fe !important;
+  stroke-width: 1.8px !important;
+  filter: drop-shadow(0 0 5px rgba(129, 140, 248, 0.7)) !important;
+  transform: scale(1.2);
+  transition: transform 0.18s ease, stroke 0.18s ease, filter 0.18s ease;
+}
+
+.rpg-node-bg.rpg-node-hover-neighbor circle {
+  fill: #818cf8 !important;
+}
+
+.rpg-node.rpg-node-hover-neighbor text {
+  opacity: 1 !important;
+  fill: var(--text-normal, #ffffff) !important;
+  font-weight: 600 !important;
+  font-size: 11px !important;
+  filter: drop-shadow(0 1px 3px rgba(0, 0, 0, 0.9)) !important;
+  transition: opacity 0.18s ease;
+}
+
+/* 4. Dimmed Edges */
+.rpg-edge-bg.rpg-edge-dimmed,
+.rpg-edge-halo.rpg-edge-dimmed,
+.rpg-edge-active.rpg-edge-dimmed {
+  opacity: 0.04 !important;
+  stroke-opacity: 0.04 !important;
+  transition: opacity 0.18s ease;
+}
+
+.rpg-edge-label-text.rpg-edge-text-dimmed {
+  opacity: 0.04 !important;
+  transition: opacity 0.18s ease;
+}
+
+/* 5. Highlighted Connected Edges */
+.rpg-edge-bg.rpg-edge-hover-highlight {
+  stroke: var(--interactive-accent, #818cf8) !important;
+  stroke-width: 2px !important;
+  stroke-opacity: 0.9 !important;
+  opacity: 0.9 !important;
+  filter: drop-shadow(0 0 5px rgba(129, 140, 248, 0.6)) !important;
+  transition: stroke 0.18s ease, opacity 0.18s ease, stroke-width 0.18s ease;
+}
+
+.rpg-edge-active.rpg-edge-hover-highlight {
+  stroke-width: 3.5px !important;
+  opacity: 1 !important;
+}
+
+.rpg-edge-label-text.rpg-edge-text-highlight {
+  opacity: 1 !important;
+  font-weight: 700 !important;
+}
+
+/* Inspector Card docked in the Right Corner of the Canvas */
 .rpg-tooltip {
   position: absolute;
-  padding: 8px 12px;
-  background: var(--background-secondary);
-  border: 1px solid var(--background-modifier-border);
-  border-radius: var(--radius-m, 8px);
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.4);
-  font-size: var(--font-ui-small);
-  color: var(--text-normal);
-  pointer-events: none;
+  top: 20px;
+  right: 20px;
+  left: auto !important;
+  bottom: auto !important;
   z-index: 1000;
-  max-width: 260px;
+  pointer-events: none;
+  width: 340px;
+  max-width: calc(100% - 40px);
+  max-height: calc(100% - 40px);
+  background: rgba(18, 23, 33, 0.96);
+  backdrop-filter: blur(14px);
+  border: 1px solid #334155;
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.75), 0 0 1px 1px rgba(56, 189, 248, 0.35);
+  padding: 14px 16px;
+  color: #e2e8f0;
   display: none;
+  opacity: 0;
+  transform: translateX(10px);
+  transition: opacity 0.18s ease, transform 0.18s ease;
 }
 
-.rpg-tooltip h4 {
-  margin: 0 0 4px 0;
-  font-size: 13px;
-  color: var(--interactive-accent);
+.rpg-tooltip.visible {
+  display: block;
+  opacity: 1;
+  transform: translateX(0);
 }
 
-.rpg-tooltip-prop {
-  margin: 2px 0;
+.rpg-tt-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid rgba(51, 65, 85, 0.7);
+  padding-bottom: 10px;
+  margin-bottom: 10px;
+}
+
+.rpg-tt-title {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.rpg-tt-dot {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: #00f0ff;
+  box-shadow: 0 0 8px rgba(0, 240, 255, 0.85);
+  flex-shrink: 0;
+}
+
+.rpg-tt-name {
+  font-size: 15px;
+  font-weight: 700;
+  color: #ffffff;
+  letter-spacing: 0.2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.rpg-tt-badge {
   font-size: 11px;
-  color: var(--text-muted);
+  padding: 2px 8px;
+  border-radius: 4px;
+  background: rgba(30, 41, 59, 0.9);
+  color: #38bdf8;
+  font-family: var(--font-monospace, monospace);
+  font-weight: 600;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+  flex-shrink: 0;
+  letter-spacing: 0.5px;
+}
+
+.rpg-tt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  font-size: 13px;
+  line-height: 1.4;
+  max-height: 250px;
+  overflow-y: auto;
+}
+
+.rpg-tt-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 12px;
+  font-size: 13px;
+}
+
+.rpg-tt-key {
+  color: #94a3b8;
+  font-weight: 500;
+  font-size: 13px;
+  flex-shrink: 0;
+}
+
+.rpg-tt-key.rpg-tt-key-direct {
+  color: #38bdf8;
+  font-weight: 600;
+}
+
+.rpg-tt-val {
+  color: #f1f5f9;
+  font-weight: 600;
+  font-size: 13px;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  word-break: break-word;
+}
+
+.rpg-tt-val-base {
+  color: #38bdf8;
+  font-family: var(--font-monospace, monospace);
+  font-size: 12.5px;
+}
+
+.rpg-tt-footer {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid rgba(51, 65, 85, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11.5px;
+  color: #64748b;
+}
+
+.rpg-tt-hint {
+  color: #38bdf8;
+  font-weight: 600;
+  font-size: 11.5px;
 }
 
 .rpg-empty-state {
@@ -666,7 +894,7 @@
   flex-wrap: wrap;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: 8px 12px;
   width: 100%;
 }
 
@@ -674,16 +902,14 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
+  gap: 8px 10px;
 }
 
 .ft-toolbar-center {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
-  flex-shrink: 0;
+  gap: 8px 10px;
 }
 
 .ft-filter-item {
@@ -1087,7 +1313,7 @@
 
 /* â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ Floating Person Details Tooltip â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€ */
 .ft-person-tooltip {
-  position: fixed;
+  position: absolute;
   z-index: 1000;
   pointer-events: none;
   width: 360px;
@@ -1282,16 +1508,17 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 5px;
-  padding: 3px 6px;
+  gap: 4px;
+  padding: 2px 6px;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s, 4px);
   min-height: 28px;
-  position: relative;
+  max-height: 56px;
+  overflow-y: auto;
   cursor: text;
-  min-width: 170px;
-  max-width: 380px;
+  min-width: 130px;
+  max-width: 280px;
   transition: border-color 0.15s ease;
 }
 
@@ -1332,9 +1559,9 @@
   color: #ffffff;
 }
 
-.ft-pill-box input.ft-pill-input {
-  flex: 1;
-  min-width: 80px;
+.ft-pill-container input.ft-pill-input {
+  flex: 1 1 50px;
+  min-width: 45px;
   border: none;
   background: transparent;
   padding: 1px 4px;
@@ -1348,13 +1575,13 @@
   position: absolute;
   top: 100%;
   left: 0;
-  right: 0;
+  min-width: 100%;
   max-height: 180px;
   overflow-y: auto;
   background: var(--background-primary);
   border: 1px solid var(--background-modifier-border);
   border-radius: var(--radius-s, 4px);
-  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35);
+  box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45);
   z-index: 10000;
   margin-top: 4px;
   padding: 4px 0;

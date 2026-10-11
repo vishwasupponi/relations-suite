@@ -12,8 +12,8 @@ const FAMILY_TREE_VIEW_TYPE = "family-tree-view";
 const DEFAULT_SETTINGS = {
   // --- 1. Relation Sync Engine ---
   includedFolders: [],
-  autoLinkSiblings: false,
-  autoLinkSpouseCoParent: false,
+  autoLinkSiblings: true,
+  autoLinkSpouseCoParent: true,
   genderProperty: "",
   maleValues: [],
   femaleValues: [],
@@ -53,7 +53,7 @@ const DEFAULT_SETTINGS = {
   cardWidth: 154,
   cardHeight: 54,
   horizontalSpacing: 48,
-  familyBranchSpacing: 260,
+  familyBranchSpacing: 90,
 };
 
 const LINEAGE_PALETTE = [
@@ -74,16 +74,45 @@ const LINEAGE_PALETTE = [
 function bare(s) {
   if (!s) return "";
   let n = String(s).trim();
+  if ((n.startsWith('"') && n.endsWith('"')) || (n.startsWith("'") && n.endsWith("'"))) {
+    n = n.slice(1, -1).trim();
+  }
   if (n.startsWith("[[") && n.endsWith("]]")) n = n.slice(2, -2);
   const p = n.indexOf("|"); if (p !== -1) n = n.slice(0, p);
   const h = n.indexOf("#"); if (h !== -1) n = n.slice(0, h);
+  n = n.split("/").pop().split("\\").pop();
   return n.replace(/\.md$/i, "").trim();
 }
 
 function linksUnderProp(cache, propKey) {
-  if (!cache) return [];
+  if (!cache || !propKey) return [];
   const lk = propKey.toLowerCase();
   const results = new Set();
+
+  const fm = cache.frontmatter;
+  if (fm) {
+    const realKey = Object.keys(fm).find(k => k.toLowerCase() === lk);
+    if (realKey && fm[realKey] != null) {
+      const val = fm[realKey];
+      const items = Array.isArray(val) ? val : [val];
+      for (const item of items) {
+        if (!item) continue;
+        if (typeof item === "string") {
+          const rx = /\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g;
+          let m, found = false;
+          while ((m = rx.exec(item)) !== null) { results.add(bare(m[1])); found = true; }
+          if (!found) {
+            const cleaned = bare(item);
+            if (cleaned) results.add(cleaned);
+          }
+        } else if (typeof item === "object") {
+          const n = bare(item.link || item.path || item.displayText || item.toFileName || item.original || "");
+          if (n) results.add(n);
+        }
+      }
+    }
+    return [...results].filter(Boolean);
+  }
 
   if (Array.isArray(cache.frontmatterLinks)) {
     for (const fl of cache.frontmatterLinks) {
@@ -96,26 +125,6 @@ function linksUnderProp(cache, propKey) {
     }
   }
 
-  const fm = cache.frontmatter;
-  if (fm) {
-    const realKey = Object.keys(fm).find(k => k.toLowerCase() === lk);
-    if (realKey) {
-      const val = fm[realKey];
-      const items = Array.isArray(val) ? val : [val];
-      for (const item of items) {
-        if (!item) continue;
-        if (typeof item === "string") {
-          const rx = /\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g;
-          let m, found = false;
-          while ((m = rx.exec(item)) !== null) { results.add(bare(m[1])); found = true; }
-          if (!found) results.add(bare(item));
-        } else if (typeof item === "object") {
-          const n = bare(item.link || item.path || item.displayText || item.toFileName || item.original || "");
-          if (n) results.add(n);
-        }
-      }
-    }
-  }
   return [...results].filter(Boolean);
 }
 
@@ -552,7 +561,7 @@ class RPGPropertyPillSelector {
 
 class FTPropertyPillSelector {
   constructor(containerEl, initialProps, getAvailableProps, onChange, placeholderText = "", placeholderAdd = "") {
-    this.containerEl = containerEl;
+    this.wrapperEl = containerEl;
     this.props = Array.isArray(initialProps) ? [...initialProps] : [];
     this.getAvailableProps = getAvailableProps;
     this.onChange = onChange;
@@ -563,12 +572,16 @@ class FTPropertyPillSelector {
   }
 
   render() {
-    this.containerEl.empty();
-    this.containerEl.addClass("ft-pill-container");
+    this.wrapperEl.empty();
+    this.wrapperEl.removeClass("ft-pill-container");
+    this.wrapperEl.addClass("ft-pill-wrapper");
+
+    // Scrollable pill box container
+    this.boxEl = this.wrapperEl.createDiv({ cls: "ft-pill-container" });
 
     // Render pill badges
     this.props.forEach((prop, idx) => {
-      const pill = this.containerEl.createSpan({ cls: "ft-pill", text: prop });
+      const pill = this.boxEl.createSpan({ cls: "ft-pill", text: prop });
       const del = pill.createSpan({ cls: "ft-pill-remove", text: "×" });
       del.addEventListener("click", (e) => {
         e.stopPropagation();
@@ -580,7 +593,7 @@ class FTPropertyPillSelector {
     });
 
     // Inline input box — clean blank placeholder
-    this.input = this.containerEl.createEl("input", {
+    this.input = this.boxEl.createEl("input", {
       type: "text",
       cls: "ft-pill-input",
       placeholder: this.props.length ? this.placeholderAdd : this.placeholderText,
@@ -623,7 +636,8 @@ class FTPropertyPillSelector {
 
       if (!matches.length) return;
 
-      dropdown = this.containerEl.createDiv({ cls: "ft-pill-dropdown" });
+      // Attach dropdown directly to wrapperEl (NOT inside the overflow-y auto boxEl!)
+      dropdown = this.wrapperEl.createDiv({ cls: "ft-pill-dropdown" });
       dropdownItems = [];
       matches.forEach((k, idx) => {
         const item = dropdown.createDiv({ cls: "ft-pill-item", text: k });
@@ -697,7 +711,7 @@ class FTPropertyPillSelector {
       }
     });
 
-    this.containerEl.addEventListener("click", () => {
+    this.boxEl.addEventListener("click", () => {
       this.input.focus({ preventScroll: true });
     });
   }
@@ -735,6 +749,8 @@ class RelationGraphView extends obsidian.ItemView {
     this.paths = [];
     this.currentPathIndex = 0;
     this.graphData = { nodes: [], edges: [], edgeElements: [], nodeElements: [] };
+    this.activePathElements = [];
+    this.hasRenderedOnce = false;
 
     // Pan / Zoom transform
     this.zoom = 1;
@@ -748,7 +764,10 @@ class RelationGraphView extends obsidian.ItemView {
     this.alpha = 0;
     this.animFrameId = null;
     this.draggedNode = null;
+    this.draggedNodeEl = null;
     this.dragStartPos = { x: 0, y: 0 };
+    this.dragOffset = null;
+    this.explicitPinnedSet = new Set();
   }
 
   getViewType() { return RELATION_GRAPH_VIEW_TYPE; }
@@ -764,10 +783,30 @@ class RelationGraphView extends obsidian.ItemView {
     this.renderGraphCanvas(contentEl);
 
     this.refreshBaseDropdown();
+
+    requestAnimationFrame(() => this.resetView());
+    setTimeout(() => this.resetView(), 100);
+
+    let debounceTimer = null;
+    const triggerAutoRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        this.updateGraph();
+      }, 300);
+    };
+
+    this.registerEvent(this.app.metadataCache.on("changed", () => triggerAutoRefresh()));
+    this.registerEvent(this.app.vault.on("create", () => triggerAutoRefresh()));
+    this.registerEvent(this.app.vault.on("delete", () => triggerAutoRefresh()));
+    this.registerEvent(this.app.vault.on("rename", () => triggerAutoRefresh()));
   }
 
   onClose() {
     if (this.animFrameId) cancelAnimationFrame(this.animFrameId);
+    if (this.resizeObserver) {
+      this.resizeObserver.disconnect();
+      this.resizeObserver = null;
+    }
   }
 
   renderControlBar(parentEl) {
@@ -908,14 +947,7 @@ class RelationGraphView extends obsidian.ItemView {
 
     // Reset button
     const resetBtn = row2.createEl("button", { text: "Clear" });
-    resetBtn.addEventListener("click", () => {
-      this.personA = "";
-      this.personB = "";
-      this.personAInput.value = "";
-      this.personBInput.value = "";
-      this.paths = [];
-      this.updateGraph();
-    });
+    resetBtn.addEventListener("click", () => this.clearActivePath());
 
     // ── Row 3: Status / Stepper & Zoom Controls ──
     this.statusBar = this.controlBar.createDiv({ cls: "rpg-status-bar" });
@@ -939,7 +971,10 @@ class RelationGraphView extends obsidian.ItemView {
     const zoomOutBtn = viewOpts.createEl("button", { cls: "rpg-zoom-btn", text: "−" });
     zoomOutBtn.addEventListener("click", () => this.applyZoom(0.8));
     const resetZoomBtn = viewOpts.createEl("button", { cls: "rpg-zoom-btn", text: "Reset View" });
-    resetZoomBtn.addEventListener("click", () => this.resetView());
+    resetZoomBtn.addEventListener("click", () => {
+      this.wakeSimulation(0.4);
+      this.resetView();
+    });
   }
 
   renderGraphCanvas(parentEl) {
@@ -960,6 +995,9 @@ class RelationGraphView extends obsidian.ItemView {
     this.nodesGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
     this.viewport.appendChild(this.nodesGroup);
 
+    this.activePathGroup = document.createElementNS("http://www.w3.org/2000/svg", "g");
+    this.viewport.appendChild(this.activePathGroup);
+
     // Empty state notice
     this.emptyState = this.canvasWrapper.createDiv({
       cls: "rpg-empty-state",
@@ -973,7 +1011,7 @@ class RelationGraphView extends obsidian.ItemView {
     this.canvasWrapper.addEventListener("wheel", e => {
       e.preventDefault();
       const zoomFactor = e.deltaY < 0 ? 1.12 : 0.88;
-      this.applyZoom(zoomFactor, e.clientX, e.clientY);
+      this.applyZoom(zoomFactor);
     });
 
     this.canvasWrapper.addEventListener("mousedown", e => {
@@ -982,6 +1020,7 @@ class RelationGraphView extends obsidian.ItemView {
       this.isPanning = true;
       this.startX = e.clientX - this.panX;
       this.startY = e.clientY - this.panY;
+      this.canvasWrapper.classList.add("is-panning");
     });
 
     window.addEventListener("mousemove", e => {
@@ -992,18 +1031,58 @@ class RelationGraphView extends obsidian.ItemView {
       } else if (this.draggedNode) {
         // Dragging a node in canvas space
         const p = this.screenToCanvasPoint(e.clientX, e.clientY);
-        this.draggedNode.x = p.x;
-        this.draggedNode.y = p.y;
+        const offX = this.dragOffset ? this.dragOffset.x : 0;
+        const offY = this.dragOffset ? this.dragOffset.y : 0;
+        this.draggedNode.x = p.x - offX;
+        this.draggedNode.y = p.y - offY;
         this.draggedNode.vx = 0;
         this.draggedNode.vy = 0;
-        this.wakeSimulation(0.3);
+        if (this.draggedNodeEl) {
+          this.draggedNodeEl.setAttribute("transform", `translate(${this.draggedNode.x}, ${this.draggedNode.y})`);
+        }
+        this.updateConnectedLinesForNode(this.draggedNode);
+        this.wakeSimulation(0.4);
       }
     });
 
     window.addEventListener("mouseup", () => {
       this.isPanning = false;
-      this.draggedNode = null;
+      this.canvasWrapper.classList.remove("is-panning", "is-dragging");
+      if (this.draggedNodeEl) {
+        this.draggedNodeEl.classList.remove("is-dragging");
+      }
+      if (this.draggedNode) {
+        this.draggedNode.vx = 0;
+        this.draggedNode.vy = 0;
+        const droppedNode = this.draggedNode;
+        this.draggedNode = null;
+        this.draggedNodeEl = null;
+        this.dragOffset = null;
+        this.hideTooltip();
+        this.unhighlightConnected();
+        this.updateConnectedLinesForNode(droppedNode);
+        this.wakeSimulation(0.35);
+      }
     });
+
+    this.canvasWrapper.addEventListener("mouseleave", () => {
+      if (!this.draggedNode) {
+        this.hideTooltip();
+        this.unhighlightConnected();
+      }
+    });
+
+    if (window.ResizeObserver) {
+      this.resizeObserver = new ResizeObserver(entries => {
+        for (const entry of entries) {
+          const { width, height } = entry.contentRect;
+          if (width > 0 && height > 0) {
+            this.resetView();
+          }
+        }
+      });
+      this.resizeObserver.observe(this.canvasWrapper);
+    }
   }
 
   screenToCanvasPoint(clientX, clientY) {
@@ -1127,30 +1206,90 @@ class RelationGraphView extends obsidian.ItemView {
   }
 
   getFilesMatchingBase() {
-    const k = (this.baseKey || "").toLowerCase();
-    const targetVal = (this.selectedBaseVal || "").toLowerCase();
+    const k = (this.baseKey || this.plugin.settings.rpg_basePropertyName || "base").toLowerCase();
+    const targetVal = (this.selectedBaseVal || this.plugin.settings.rpg_defaultBaseValue || "").toLowerCase().trim();
     const result = [];
 
+    const exclValues = [
+      ...(this.plugin.settings.excludeValues || []),
+      ...(this.plugin.settings.ft_excludeValues || [])
+    ].map(v => bare(String(v || "")).toLowerCase().trim()).filter(Boolean);
+
+    const matchBase = (b, filter) => {
+      if (!b || !filter) return false;
+      const bLower = b.toLowerCase().trim();
+      const fLower = filter.toLowerCase().trim();
+      if (bLower === fLower) return true;
+      const bClean = bLower.replace(/\.md$/, "").replace(/\.base$/, "");
+      const fClean = fLower.replace(/\.md$/, "").replace(/\.base$/, "");
+      return bClean === fClean;
+    };
+
+    const exclProp = (this.plugin.settings.ft_excludePropertyName || this.plugin.settings.excludePropertyName || "").toLowerCase().trim();
+    const exclPropVal = (this.plugin.settings.ft_excludePropertyValue || this.plugin.settings.excludePropertyValue || "").toLowerCase().trim();
+
     for (const f of this.app.vault.getMarkdownFiles()) {
+      const bLo = f.basename.toLowerCase().trim();
+
+      // Exclude files matching user-configured excluded values
+      if (exclValues.includes(bLo)) continue;
+
       const cache = this.app.metadataCache.getFileCache(f);
       if (!cache || !cache.frontmatter) continue;
-      const realKey = Object.keys(cache.frontmatter).find(key => key.toLowerCase() === k);
-      if (!realKey) continue;
-      const v = cache.frontmatter[realKey];
-      const items = Array.isArray(v) ? v : [v];
-      const hasBase = items.some(item => {
-        if (!item) return false;
-        const bName = bare(typeof item === "string" ? item : (item.link || ""));
-        return bName.toLowerCase() === targetVal;
-      });
-      if (hasBase) result.push(f);
+      const fm = cache.frontmatter;
+
+      // Exclude files matching user-configured excluded property and values
+      if (exclProp && exclProp !== "(none)") {
+        const propKey = Object.keys(fm).find(pk => pk.toLowerCase() === exclProp);
+        if (propKey && fm[propKey] != null) {
+          const rawVals = Array.isArray(fm[propKey]) ? fm[propKey] : [fm[propKey]];
+          const valMatches = rawVals.some(v => {
+            const cleanVal = bare(typeof v === "object" ? (v.link || "") : String(v || "")).toLowerCase().trim();
+            if (exclPropVal && cleanVal === exclPropVal) return true;
+            if (exclValues.includes(cleanVal)) return true;
+            return false;
+          });
+          if (valMatches) continue;
+        }
+      }
+
+      // 6. Base property matching
+      if (targetVal) {
+        const realKey = Object.keys(fm).find(key => key.toLowerCase() === k);
+        if (!realKey) continue;
+        const v = fm[realKey];
+        const items = Array.isArray(v) ? v : [v];
+        const hasBase = items.some(item => {
+          if (!item) return false;
+          const bName = bare(typeof item === "object" ? (item.link || "") : String(item || ""));
+          return matchBase(bName, targetVal);
+        });
+        if (!hasBase) continue;
+      }
+
+      result.push(f);
     }
     return result;
   }
 
   getExcludedPropertiesSet() {
     const list = this.plugin.getExcludedPropertiesList();
-    return new Set(list.map(s => s.trim().toLowerCase()).filter(Boolean));
+    const set = new Set(list.map(s => s.trim().toLowerCase()).filter(Boolean));
+    const ftExclProp = (this.plugin.settings.ft_excludePropertyName || this.plugin.settings.excludePropertyName || "").toLowerCase().trim();
+    if (ftExclProp && ftExclProp !== "(none)") set.add(ftExclProp);
+    if (this.baseKey) set.add(this.baseKey.trim().toLowerCase());
+    set.add("base");
+    set.add("bases");
+    set.add("tag");
+    set.add("tags");
+    set.add("template");
+    set.add("templates");
+    set.add("type");
+    set.add("types");
+    set.add("aliases");
+    set.add("alias");
+    set.add("position");
+    return set;
   }
 
   /* ─── Graph Construction & Pathfinding (Point 1: Deduplication) ─── */
@@ -1161,31 +1300,12 @@ class RelationGraphView extends obsidian.ItemView {
     baseFiles.forEach(f => fileSet.set(f.basename.toLowerCase(), f));
 
     const excluded = this.getExcludedPropertiesSet();
-    const nodes = [];
-    const nodeMap = new Map();
     const edges = [];
     const edgeKeySet = new Set();
+    const degreeMap = new Map();
+    baseFiles.forEach(f => degreeMap.set(f.basename.toLowerCase(), 0));
 
-    const count = baseFiles.length;
-    baseFiles.forEach((f, idx) => {
-      const angle = (idx / Math.max(count, 1)) * 2 * Math.PI;
-      const rad = 140 + Math.random() * 80;
-      const node = {
-        id: f.basename,
-        file: f,
-        x: Math.cos(angle) * rad,
-        y: Math.sin(angle) * rad,
-        vx: 0,
-        vy: 0,
-        isEndpoint: false,
-        isIntermediate: false,
-        isDimmed: true,
-      };
-      nodes.push(node);
-      nodeMap.set(f.basename.toLowerCase(), node);
-    });
-
-    // Build edges from all non-excluded properties
+    // 1. Build edges from all non-excluded properties and calculate connectivity degree
     for (const f of baseFiles) {
       const cache = this.app.metadataCache.getFileCache(f);
       if (!cache || !cache.frontmatter) continue;
@@ -1193,10 +1313,12 @@ class RelationGraphView extends obsidian.ItemView {
       for (const propKey of Object.keys(cache.frontmatter)) {
         if (propKey === "position") continue;
         if (excluded.has(propKey.toLowerCase())) continue;
+        if (this.baseKey && propKey.toLowerCase() === this.baseKey.toLowerCase()) continue;
 
         const linkedNames = linksUnderProp(cache, propKey);
         for (const targetName of linkedNames) {
           const targetLower = targetName.toLowerCase();
+          if (this.selectedBaseVal && targetLower === this.selectedBaseVal.toLowerCase()) continue;
           if (fileSet.has(targetLower) && targetLower !== f.basename.toLowerCase()) {
             const edgeKey = `${f.basename.toLowerCase()}->${targetLower}:${propKey.toLowerCase()}`;
             if (!edgeKeySet.has(edgeKey)) {
@@ -1207,13 +1329,66 @@ class RelationGraphView extends obsidian.ItemView {
                 propKey: propKey,
                 isActivePath: false,
               });
+              degreeMap.set(f.basename.toLowerCase(), (degreeMap.get(f.basename.toLowerCase()) || 0) + 1);
+              degreeMap.set(targetLower, (degreeMap.get(targetLower) || 0) + 1);
             }
           }
         }
       }
     }
 
-    return { nodes, nodeMap, edges, edgeElements: [], nodeElements: [] };
+    // 2. Build deduplicated undirected edges for physics simulation
+    const undirectedEdges = [];
+    const undirectedEdgeSet = new Set();
+    for (const edge of edges) {
+      const u = edge.sourceId.toLowerCase();
+      const v = edge.targetId.toLowerCase();
+      const undirectedKey = u < v ? `${u}---${v}` : `${v}---${u}`;
+      if (!undirectedEdgeSet.has(undirectedKey)) {
+        undirectedEdgeSet.add(undirectedKey);
+        undirectedEdges.push({ sourceId: edge.sourceId, targetId: edge.targetId });
+      }
+    }
+
+    // 3. Sort files by degree descending: highest degree (hubs) placed at center (r ≈ 0),
+    // lowest / zero degree (leaves/unconnected) placed on the outer boundary (r ≈ 260)
+    const sortedFiles = [...baseFiles].sort((a, b) => {
+      const degA = degreeMap.get(a.basename.toLowerCase()) || 0;
+      const degB = degreeMap.get(b.basename.toLowerCase()) || 0;
+      return degB - degA;
+    });
+
+    const nodes = [];
+    const nodeMap = new Map();
+    const existingNodeMap = (this.graphData && this.graphData.nodeMap) || new Map();
+    const count = sortedFiles.length;
+
+    sortedFiles.forEach((f, idx) => {
+      const deg = degreeMap.get(f.basename.toLowerCase()) || 0;
+      const existing = existingNodeMap.get(f.basename.toLowerCase());
+      // Filled circular disc distribution: center r=0 for hubs, perimeter r=260 for leaves
+      const phi = idx * 137.5 * (Math.PI / 180);
+      const r = Math.sqrt((idx + 0.5) / Math.max(count, 1)) * 260;
+      const initX = Math.cos(phi) * r;
+      const initY = Math.sin(phi) * r;
+      const node = {
+        id: f.basename,
+        file: f,
+        deg: deg,
+        x: existing && Number.isFinite(existing.x) ? existing.x : initX,
+        y: existing && Number.isFinite(existing.y) ? existing.y : initY,
+        vx: 0,
+        vy: 0,
+        isPinned: this.explicitPinnedSet ? this.explicitPinnedSet.has(f.basename.toLowerCase()) : false,
+        isEndpoint: false,
+        isIntermediate: false,
+        isDimmed: false,
+      };
+      nodes.push(node);
+      nodeMap.set(f.basename.toLowerCase(), node);
+    });
+
+    return { nodes, nodeMap, edges, undirectedEdges, edgeElements: [], nodeElements: [] };
   }
 
   findPaths(graph, startName, endName) {
@@ -1246,40 +1421,81 @@ class RelationGraphView extends obsidian.ItemView {
       adj.get(t).get(s).reverseProps.push(e.propKey);
     }
 
-    // BFS with unique neighbor traversal & deduplication
-    const queue = [[{ node: sLower, edgeProp: null }]];
-    const foundPaths = [];
-    const seenNodeSequences = new Set();
-    const maxPaths = 5;
-    let iterations = 0;
-    const maxIterations = 10000;
+    const findSingleShortestPath = (excludedEdges = new Set()) => {
+      const q = [sLower];
+      const pMap = new Map();
+      pMap.set(sLower, null);
 
-    while (queue.length > 0 && iterations++ < maxIterations) {
-      const path = queue.shift();
-      const lastNode = path[path.length - 1].node;
+      while (q.length > 0) {
+        const curr = q.shift();
+        if (curr === eLower) break;
+        const nbrs = adj.get(curr);
+        if (!nbrs) continue;
+        for (const nbr of nbrs.keys()) {
+          const edgeKey1 = `${curr}---${nbr}`;
+          const edgeKey2 = `${nbr}---${curr}`;
+          if (excludedEdges.has(edgeKey1) || excludedEdges.has(edgeKey2)) continue;
 
-      if (lastNode === eLower) {
-        const seqKey = path.map(step => step.node).join("->");
-        if (!seenNodeSequences.has(seqKey)) {
-          seenNodeSequences.add(seqKey);
-          foundPaths.push(path);
-          if (foundPaths.length >= maxPaths) break;
+          if (!pMap.has(nbr)) {
+            pMap.set(nbr, curr);
+            q.push(nbr);
+          }
         }
-        continue;
       }
 
-      // Allow up to 12 degrees of relationship
-      if (path.length > 12) continue;
+      if (!pMap.has(eLower)) return null;
 
-      const neighborMap = adj.get(lastNode);
-      if (!neighborMap) continue;
+      const pathNodes = [];
+      let curr = eLower;
+      while (curr !== null) {
+        pathNodes.push(curr);
+        curr = pMap.get(curr);
+      }
+      pathNodes.reverse();
+      return pathNodes;
+    };
 
-      for (const [neighbor, edgeInfo] of neighborMap.entries()) {
-        if (!path.some(step => step.node === neighbor)) {
-          // Prefer direct forward relationship property, fall back to reverse property
-          const bestProp = edgeInfo.forwardProps[0] || edgeInfo.reverseProps[0] || "related";
-          queue.push([...path, { node: neighbor, edgeProp: bestProp }]);
+    const pathToSteps = (nodeList) => {
+      return nodeList.map((node, i) => {
+        if (i === 0) return { node, edgeProp: null };
+        const prev = nodeList[i - 1];
+        const edgeInfo = adj.get(prev)?.get(node);
+        const prop = (edgeInfo && (edgeInfo.forwardProps[0] || edgeInfo.reverseProps[0])) || "related";
+        return { node, edgeProp: prop };
+      });
+    };
+
+    // 1. Initial guaranteed shortest path (symmetric BFS)
+    const initialNodes = findSingleShortestPath();
+    if (!initialNodes) return [];
+
+    const foundPaths = [pathToSteps(initialNodes)];
+    const seenSequences = new Set([initialNodes.join("->")]);
+    const candidatePaths = [];
+
+    // 2. Discover alternative paths (Yen's K-Shortest Path approach)
+    for (let k = 0; k < foundPaths.length && foundPaths.length < 10; k++) {
+      const currentPathNodes = foundPaths[k].map(step => step.node);
+
+      for (let i = 0; i < currentPathNodes.length - 1; i++) {
+        const u = currentPathNodes[i];
+        const v = currentPathNodes[i + 1];
+        const excludedEdges = new Set([`${u}---${v}`, `${v}---${u}`]);
+
+        const altNodes = findSingleShortestPath(excludedEdges);
+        if (altNodes) {
+          const seq = altNodes.join("->");
+          if (!seenSequences.has(seq)) {
+            seenSequences.add(seq);
+            candidatePaths.push(altNodes);
+          }
         }
+      }
+
+      candidatePaths.sort((a, b) => a.length - b.length);
+      while (candidatePaths.length > 0 && foundPaths.length < 10) {
+        const nextBest = candidatePaths.shift();
+        foundPaths.push(pathToSteps(nextBest));
       }
     }
 
@@ -1295,7 +1511,11 @@ class RelationGraphView extends obsidian.ItemView {
       return;
     }
 
-    this.graphData = this.buildGraphData();
+    if (!this.graphData || !this.graphData.nodes || !this.graphData.nodes.length) {
+      this.graphData = this.buildGraphData();
+      this.renderGraph();
+    }
+
     this.paths = this.findPaths(this.graphData, this.personA, this.personB);
     this.currentPathIndex = 0;
 
@@ -1304,24 +1524,44 @@ class RelationGraphView extends obsidian.ItemView {
       this.breadcrumbEl.empty();
       this.prevBtn.disabled = true;
       this.nextBtn.disabled = true;
+      this.highlightActivePathOnExistingGraph();
     } else {
       this.updatePathDisplay();
+      this.highlightActivePathOnExistingGraph();
     }
-
-    this.renderGraph();
   }
 
   changePath(delta) {
     if (!this.paths.length) return;
     this.currentPathIndex = (this.currentPathIndex + delta + this.paths.length) % this.paths.length;
     this.updatePathDisplay();
-    this.renderGraph();
+    this.highlightActivePathOnExistingGraph();
+  }
+
+  clearActivePath() {
+    this.personA = "";
+    this.personB = "";
+    if (this.personAInput) this.personAInput.value = "";
+    if (this.personBInput) this.personBInput.value = "";
+    this.paths = [];
+    this.currentPathIndex = 0;
+
+    if (this.pathLabelEl) {
+      this.pathLabelEl.setText("Select Person A & B to trace relationship.");
+    }
+    if (this.breadcrumbEl) {
+      this.breadcrumbEl.empty();
+    }
+    if (this.prevBtn) this.prevBtn.disabled = true;
+    if (this.nextBtn) this.nextBtn.disabled = true;
+
+    this.highlightActivePathOnExistingGraph();
   }
 
   updatePathDisplay() {
     const total = this.paths.length;
     const idx = this.currentPathIndex;
-    const isShortest = idx === 0 ? " (Shortest)" : "";
+    const isShortest = (idx === 0 && total > 1) ? " (Shortest)" : "";
     this.pathLabelEl.setText(`Path ${idx + 1} of ${total}${isShortest}`);
 
     this.prevBtn.disabled = total <= 1;
@@ -1330,23 +1570,33 @@ class RelationGraphView extends obsidian.ItemView {
     // Breadcrumb
     this.breadcrumbEl.empty();
     const activePath = this.paths[idx];
-    activePath.forEach((step, i) => {
-      if (i > 0) {
-        const edgeSpan = this.breadcrumbEl.createSpan({ cls: "rpg-breadcrumb-edge" });
-        edgeSpan.setText(` ── ${step.edgeProp} ➔ `);
-      }
-      const nodeSpan = this.breadcrumbEl.createSpan({ cls: "rpg-breadcrumb-node" });
-      const origNode = this.graphData.nodeMap.get(step.node);
-      nodeSpan.setText(origNode ? origNode.id : step.node);
-    });
+    if (activePath) {
+      activePath.forEach((step, i) => {
+        if (i > 0) {
+          const edgeSpan = this.breadcrumbEl.createSpan({ cls: "rpg-breadcrumb-edge" });
+          edgeSpan.setText(` ── ${step.edgeProp} ➔ `);
+        }
+        const nodeSpan = this.breadcrumbEl.createSpan({ cls: "rpg-breadcrumb-node" });
+        const origNode = this.graphData && this.graphData.nodeMap ? this.graphData.nodeMap.get(step.node) : null;
+        nodeSpan.setText(origNode ? origNode.id : step.node);
+      });
+    }
   }
 
   updateGraph() {
     this.graphData = this.buildGraphData();
     if (this.personA && this.personB) {
       this.paths = this.findPaths(this.graphData, this.personA, this.personB);
-      this.currentPathIndex = 0;
-      if (this.paths.length) this.updatePathDisplay();
+      if (this.paths.length) {
+        this.currentPathIndex = Math.min(Math.max(this.currentPathIndex || 0, 0), this.paths.length - 1);
+        this.updatePathDisplay();
+      } else {
+        this.currentPathIndex = 0;
+        this.pathLabelEl.setText(`No connection found between "${this.personA}" and "${this.personB}".`);
+        this.breadcrumbEl.empty();
+        this.prevBtn.disabled = true;
+        this.nextBtn.disabled = true;
+      }
     }
     this.renderGraph();
   }
@@ -1354,11 +1604,14 @@ class RelationGraphView extends obsidian.ItemView {
   /* ─── SVG Rendering & Silky-Smooth Animation Loop (Point 3) ─── */
 
   renderGraph() {
+    this.unhighlightConnected();
     const { nodes, nodeMap, edges } = this.graphData;
     this.edgesGroup.innerHTML = "";
+    if (this.activePathGroup) this.activePathGroup.innerHTML = "";
     this.nodesGroup.innerHTML = "";
     this.graphData.edgeElements = [];
     this.graphData.nodeElements = [];
+    this.activePathElements = [];
 
     if (!nodes.length) {
       this.emptyState.style.display = "block";
@@ -1367,44 +1620,17 @@ class RelationGraphView extends obsidian.ItemView {
     }
     this.emptyState.style.display = "none";
 
-    const activePath = this.paths[this.currentPathIndex] || null;
-    const pathNodeSet = new Set();
-    const pathEdgesSet = new Set();
-
-    if (activePath) {
-      activePath.forEach(s => pathNodeSet.add(s.node));
-      for (let i = 0; i < activePath.length - 1; i++) {
-        const u = activePath[i].node;
-        const v = activePath[i + 1].node;
-        pathEdgesSet.add(`${u}->${v}`);
-        pathEdgesSet.add(`${v}->${u}`);
+    // Only pre-relax if this is the very first render and nodes aren't pinned yet
+    const anyPinned = nodes.some(n => n.isPinned);
+    if (!this.hasRenderedOnce && !anyPinned) {
+      for (let step = 0; step < 80; step++) {
+        const relaxAlpha = Math.max(0.02, 1 - (step / 80));
+        this.computePhysics(relaxAlpha);
       }
-    }
-
-    const sLower = this.personA.toLowerCase();
-    const eLower = this.personB.toLowerCase();
-
-    for (const node of nodes) {
-      const nLower = node.id.toLowerCase();
-      if (nLower === sLower || nLower === eLower) {
-        node.isEndpoint = true;
-        node.isIntermediate = false;
-        node.isDimmed = false;
-      } else if (pathNodeSet.has(nLower)) {
-        node.isEndpoint = false;
-        node.isIntermediate = true;
-        node.isDimmed = false;
-      } else {
-        node.isEndpoint = false;
-        node.isIntermediate = false;
-        node.isDimmed = true;
-      }
-    }
-
-    for (const edge of edges) {
-      const u = edge.sourceId.toLowerCase();
-      const v = edge.targetId.toLowerCase();
-      edge.isActivePath = pathEdgesSet.has(`${u}->${v}`);
+      this.hasRenderedOnce = true;
+      this.resetView();
+    } else {
+      this.hasRenderedOnce = true;
     }
 
     // ── 1. Render Background Edges ──
@@ -1412,32 +1638,210 @@ class RelationGraphView extends obsidian.ItemView {
       const srcNode = nodeMap.get(edge.sourceId.toLowerCase());
       const tgtNode = nodeMap.get(edge.targetId.toLowerCase());
       if (!srcNode || !tgtNode) continue;
+      if (!Number.isFinite(srcNode.x) || !Number.isFinite(srcNode.y) || !Number.isFinite(tgtNode.x) || !Number.isFinite(tgtNode.y)) continue;
 
       const line = document.createElementNS("http://www.w3.org/2000/svg", "line");
       line.setAttribute("x1", srcNode.x);
       line.setAttribute("y1", srcNode.y);
       line.setAttribute("x2", tgtNode.x);
       line.setAttribute("y2", tgtNode.y);
-      line.setAttribute("stroke", "var(--text-faint, #666666)");
-      line.setAttribute("stroke-width", "1");
-      line.setAttribute("stroke-opacity", "0.25");
-      line.style.stroke = "var(--text-faint, #666666)";
-      line.style.strokeWidth = "1px";
-      line.style.opacity = "0.25";
+      line.setAttribute("stroke", "var(--graph-line, #94a3b8)");
+      line.setAttribute("stroke-width", "2");
+      line.setAttribute("stroke-opacity", "0.85");
+      line.style.stroke = "var(--graph-line, #94a3b8)";
+      line.style.strokeWidth = "2px";
+      line.style.opacity = "0.85";
       line.classList.add("rpg-edge-bg");
       this.edgesGroup.appendChild(line);
 
       this.graphData.edgeElements.push({ line, textEl: null, srcNode, tgtNode, isActive: false });
     }
 
-    // ── 2. Render Active Path Glowing Lines (Directly from activePath) ──
-    if (activePath && activePath.length > 1) {
+    // Calculate degree map for native Obsidian-style node sizing
+    const degreeMap = new Map();
+    for (const node of nodes) degreeMap.set(node.id.toLowerCase(), 0);
+    for (const edge of edges) {
+      const u = edge.sourceId.toLowerCase();
+      const v = edge.targetId.toLowerCase();
+      if (degreeMap.has(u)) degreeMap.set(u, degreeMap.get(u) + 1);
+      if (degreeMap.has(v)) degreeMap.set(v, degreeMap.get(v) + 1);
+    }
+
+    // ── 2. Render Nodes ──
+    for (const node of nodes) {
+      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
+      g.classList.add("rpg-node", "rpg-node-bg");
+      g.setAttribute("transform", `translate(${node.x}, ${node.y})`);
+
+      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
+      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      text.textContent = node.id;
+
+      const deg = degreeMap.get(node.id.toLowerCase()) || 0;
+      node.deg = deg;
+      const baseR = Math.min(16.0, Math.max(7.5, 6.5 + Math.sqrt(deg) * 2.2));
+
+      circle.setAttribute("r", baseR);
+      circle.setAttribute("fill", "var(--graph-node, #e2e8f0)");
+      circle.setAttribute("stroke", "var(--background-primary, #18181b)");
+      circle.setAttribute("stroke-width", "1.5");
+      circle.setAttribute("opacity", "0.95");
+      text.setAttribute("y", baseR + 10);
+
+      g.appendChild(circle);
+      g.appendChild(text);
+
+      // Node Interactions: Left-click and move drags, Right-click opens context menu, Double-click opens note
+      g.addEventListener("mousedown", e => {
+        if (e.button === 0) {
+          e.preventDefault();
+          e.stopPropagation();
+          this.draggedNode = node;
+          this.draggedNodeEl = g;
+          this.dragStartPos = { x: e.clientX, y: e.clientY };
+          const p = this.screenToCanvasPoint(e.clientX, e.clientY);
+          this.dragOffset = { x: p.x - node.x, y: p.y - node.y };
+          node.vx = 0;
+          node.vy = 0;
+          this.canvasWrapper.classList.add("is-dragging");
+          g.classList.add("is-dragging");
+          this.wakeSimulation(0.4);
+        }
+      });
+
+      g.addEventListener("dblclick", e => {
+        e.stopPropagation();
+        this.app.workspace.openLinkText(node.id, "");
+      });
+
+      g.addEventListener("contextmenu", e => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.showNodeContextMenu(node, e);
+      });
+
+      g.addEventListener("mouseenter", e => {
+        if (!this.draggedNode) {
+          this.showTooltip(node, e);
+          this.highlightConnected(node);
+        }
+      });
+      g.addEventListener("mousemove", e => this.moveTooltip(e));
+      g.addEventListener("mouseleave", () => {
+        if (this.draggedNode === node) return;
+        this.hideTooltip();
+        this.unhighlightConnected();
+      });
+
+      this.nodesGroup.appendChild(g);
+      this.graphData.nodeElements.push({ g, circle, text, node, baseR });
+    }
+
+    // Highlight any active path without scattering
+    this.highlightActivePathOnExistingGraph();
+  }
+
+  highlightActivePathOnExistingGraph() {
+    if (!this.graphData || !this.graphData.nodes || !this.graphData.nodes.length) return;
+
+    const { nodes, nodeMap, nodeElements } = this.graphData;
+    const activePath = (this.paths && this.paths[this.currentPathIndex]) || null;
+    const pathNodeSet = new Set();
+
+    if (activePath) {
+      activePath.forEach(s => pathNodeSet.add(s.node.toLowerCase()));
+    }
+
+    const sLower = (this.personA || "").toLowerCase().trim();
+    const eLower = (this.personB || "").toLowerCase().trim();
+    const hasActiveFilter = !!(sLower && eLower && activePath && activePath.length > 0);
+
+    // 1. Update node classes and visual styling
+    for (const el of (nodeElements || [])) {
+      const nLower = el.node.id.toLowerCase();
+      const baseR = el.baseR || 10;
+
+      el.g.classList.remove("rpg-node-endpoint", "rpg-node-intermediate", "rpg-node-dimmed", "rpg-node-bg");
+
+      if (hasActiveFilter) {
+        if (nLower === sLower || nLower === eLower) {
+          el.node.isEndpoint = true;
+          el.node.isIntermediate = false;
+          el.node.isDimmed = false;
+          el.g.classList.add("rpg-node-endpoint");
+
+          const r = Math.max(10.0, baseR + 3.0);
+          el.circle.setAttribute("r", r);
+          el.circle.setAttribute("fill", "#00f0ff");
+          el.circle.setAttribute("stroke", "#ffffff");
+          el.circle.setAttribute("stroke-width", "2.5");
+          el.circle.setAttribute("filter", "drop-shadow(0 0 8px #00f0ff)");
+          el.circle.style.opacity = "1";
+          el.text.setAttribute("y", r + 10);
+          el.text.style.opacity = "1";
+        } else if (pathNodeSet.has(nLower)) {
+          el.node.isEndpoint = false;
+          el.node.isIntermediate = true;
+          el.node.isDimmed = false;
+          el.g.classList.add("rpg-node-intermediate");
+
+          const r = Math.max(8.5, baseR + 2.0);
+          el.circle.setAttribute("r", r);
+          el.circle.setAttribute("fill", "#818cf8");
+          el.circle.setAttribute("stroke", "#c7d2fe");
+          el.circle.setAttribute("stroke-width", "2");
+          el.circle.setAttribute("filter", "drop-shadow(0 0 5px rgba(129, 140, 248, 0.7))");
+          el.circle.style.opacity = "1";
+          el.text.setAttribute("y", r + 10);
+          el.text.style.opacity = "1";
+        } else {
+          el.node.isEndpoint = false;
+          el.node.isIntermediate = false;
+          el.node.isDimmed = true;
+          el.g.classList.add("rpg-node-bg", "rpg-node-dimmed");
+
+          el.circle.setAttribute("r", baseR);
+          el.circle.setAttribute("fill", "var(--graph-node, #e2e8f0)");
+          el.circle.setAttribute("stroke", "var(--background-primary, #18181b)");
+          el.circle.setAttribute("stroke-width", "1.5");
+          el.circle.removeAttribute("filter");
+          el.text.setAttribute("y", baseR + 10);
+        }
+      } else {
+        // No active path: reset all to normal
+        el.node.isEndpoint = false;
+        el.node.isIntermediate = false;
+        el.node.isDimmed = false;
+        el.g.classList.add("rpg-node-bg");
+
+        el.circle.setAttribute("r", baseR);
+        el.circle.setAttribute("fill", "var(--graph-node, #e2e8f0)");
+        el.circle.setAttribute("stroke", "var(--background-primary, #18181b)");
+        el.circle.setAttribute("stroke-width", "1.5");
+        el.circle.removeAttribute("filter");
+        el.circle.style.opacity = "0.95";
+        el.text.setAttribute("y", baseR + 10);
+        el.text.style.opacity = "0.92";
+      }
+    }
+
+    // 2. Clear and rebuild active path lines in activePathGroup
+    if (this.activePathGroup) {
+      this.activePathGroup.innerHTML = "";
+      if (this.viewport && this.activePathGroup.parentNode === this.viewport) {
+        this.viewport.appendChild(this.activePathGroup);
+      }
+    }
+    this.activePathElements = [];
+
+    if (hasActiveFilter && activePath && activePath.length > 1) {
       for (let i = 0; i < activePath.length - 1; i++) {
-        const u = activePath[i].node;
-        const v = activePath[i + 1].node;
+        const u = activePath[i].node.toLowerCase();
+        const v = activePath[i + 1].node.toLowerCase();
         const srcNode = nodeMap.get(u);
         const tgtNode = nodeMap.get(v);
         if (!srcNode || !tgtNode) continue;
+        if (!Number.isFinite(srcNode.x) || !Number.isFinite(srcNode.y) || !Number.isFinite(tgtNode.x) || !Number.isFinite(tgtNode.y)) continue;
 
         // Halo glow line underneath
         const haloLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -1453,7 +1857,7 @@ class RelationGraphView extends obsidian.ItemView {
         haloLine.style.strokeWidth = "7px";
         haloLine.style.opacity = "0.35";
         haloLine.classList.add("rpg-edge-halo");
-        this.edgesGroup.appendChild(haloLine);
+        this.activePathGroup.appendChild(haloLine);
 
         // Core glowing connection line
         const activeLine = document.createElementNS("http://www.w3.org/2000/svg", "line");
@@ -1469,9 +1873,10 @@ class RelationGraphView extends obsidian.ItemView {
         activeLine.style.stroke = "#00f0ff";
         activeLine.style.strokeWidth = "3px";
         activeLine.classList.add("rpg-edge-active");
-        this.edgesGroup.appendChild(activeLine);
+        this.activePathGroup.appendChild(activeLine);
 
-        // Sleek relationship label on the line
+        // Relationship label on the line
+        const propText = activePath[i + 1].edgeProp || "";
         const textEl = document.createElementNS("http://www.w3.org/2000/svg", "text");
         textEl.classList.add("rpg-edge-label-text");
         textEl.setAttribute("x", (srcNode.x + tgtNode.x) / 2);
@@ -1482,165 +1887,192 @@ class RelationGraphView extends obsidian.ItemView {
         textEl.setAttribute("text-anchor", "middle");
         textEl.style.fill = "#00f0ff";
         textEl.style.fontSize = "11px";
-        textEl.textContent = activePath[i + 1].edgeProp || "";
-        this.edgesGroup.appendChild(textEl);
+        textEl.textContent = propText;
+        this.activePathGroup.appendChild(textEl);
 
-        this.graphData.edgeElements.push({
-          line: haloLine,
-          textEl: null,
-          srcNode,
-          tgtNode,
-          isActive: true
-        });
-
-        this.graphData.edgeElements.push({
-          line: activeLine,
+        this.activePathElements.push({
+          haloLine,
+          activeLine,
           textEl,
           srcNode,
           tgtNode,
-          isActive: true
+          propText
         });
       }
     }
+  }
 
-    // ── 3. Render Nodes (Small, sleek native Obsidian dots with Dragging) ──
-    for (const node of nodes) {
-      const g = document.createElementNS("http://www.w3.org/2000/svg", "g");
-      g.classList.add("rpg-node");
-      g.setAttribute("transform", `translate(${node.x}, ${node.y})`);
+  updateConnectedLinesForNode(node) {
+    if (!node) return;
+    const nid = node.id.toLowerCase();
 
-      const circle = document.createElementNS("http://www.w3.org/2000/svg", "circle");
-      const text = document.createElementNS("http://www.w3.org/2000/svg", "text");
-      text.textContent = node.id;
-
-      if (node.isEndpoint) {
-        g.classList.add("rpg-node-endpoint");
-        circle.setAttribute("r", 7.5);
-        circle.setAttribute("fill", "#00f0ff");
-        circle.setAttribute("stroke", "#ffffff");
-        circle.setAttribute("stroke-width", "2");
-        circle.setAttribute("filter", "drop-shadow(0 0 6px #00f0ff)");
-        text.setAttribute("y", 16);
-      } else if (node.isIntermediate) {
-        g.classList.add("rpg-node-intermediate");
-        circle.setAttribute("r", 6.0);
-        circle.setAttribute("fill", "#818cf8");
-        circle.setAttribute("stroke", "#c7d2fe");
-        circle.setAttribute("stroke-width", "1.5");
-        circle.setAttribute("filter", "drop-shadow(0 0 4px rgba(129, 140, 248, 0.6))");
-        text.setAttribute("y", 14);
-      } else {
-        g.classList.add("rpg-node-bg");
-        circle.setAttribute("r", 4.5);
-        circle.setAttribute("fill", "var(--text-faint, #666666)");
-        circle.setAttribute("opacity", "0.45");
-        text.setAttribute("y", 12);
-      }
-
-      g.appendChild(circle);
-      g.appendChild(text);
-
-      // Node Interactions (Point 2: Left-click and move drags, Right-click opens context menu, Double-click opens note)
-      g.addEventListener("mousedown", e => {
-        if (e.button === 0) {
-          // Left click: start dragging node
-          e.stopPropagation();
-          this.draggedNode = node;
-          this.dragStartPos = { x: e.clientX, y: e.clientY };
-          this.wakeSimulation(0.35);
+    // 1. Update background edges
+    if (this.graphData && this.graphData.edgeElements) {
+      for (const el of this.graphData.edgeElements) {
+        if (!el.srcNode || !el.tgtNode) continue;
+        if (el.srcNode.id.toLowerCase() === nid) {
+          el.line.setAttribute("x1", node.x);
+          el.line.setAttribute("y1", node.y);
+        } else if (el.tgtNode.id.toLowerCase() === nid) {
+          el.line.setAttribute("x2", node.x);
+          el.line.setAttribute("y2", node.y);
         }
-      });
-
-      g.addEventListener("dblclick", e => {
-        e.stopPropagation();
-        this.app.workspace.openLinkText(node.id, "");
-      });
-
-      g.addEventListener("contextmenu", e => {
-        e.preventDefault();
-        e.stopPropagation();
-        this.showNodeContextMenu(node, e);
-      });
-
-      g.addEventListener("mouseenter", e => this.showTooltip(node, e));
-      g.addEventListener("mousemove", e => this.moveTooltip(e));
-      g.addEventListener("mouseleave", () => this.hideTooltip());
-
-      this.nodesGroup.appendChild(g);
-      this.graphData.nodeElements.push({ g, node });
+      }
     }
 
-    // Pre-relaxation pass: untangle layout before camera centers
-    for (let step = 0; step < 60; step++) {
-      this.computePhysics(0.25);
+    // 2. Update active path glowing lines & text labels
+    if (this.activePathElements && this.activePathElements.length) {
+      for (const el of this.activePathElements) {
+        if (!el.srcNode || !el.tgtNode) continue;
+        const isSrc = el.srcNode.id.toLowerCase() === nid;
+        const isTgt = el.tgtNode.id.toLowerCase() === nid;
+        if (isSrc || isTgt) {
+          if (isSrc) {
+            el.haloLine.setAttribute("x1", node.x);
+            el.haloLine.setAttribute("y1", node.y);
+            el.activeLine.setAttribute("x1", node.x);
+            el.activeLine.setAttribute("y1", node.y);
+          }
+          if (isTgt) {
+            el.haloLine.setAttribute("x2", node.x);
+            el.haloLine.setAttribute("y2", node.y);
+            el.activeLine.setAttribute("x2", node.x);
+            el.activeLine.setAttribute("y2", node.y);
+          }
+          if (el.textEl) {
+            const midX = (el.srcNode.x + el.tgtNode.x) / 2;
+            const midY = (el.srcNode.y + el.tgtNode.y) / 2;
+            el.textEl.setAttribute("x", midX);
+            el.textEl.setAttribute("y", midY - 8);
+          }
+        }
+      }
     }
-
-    // Auto-fit camera to framed graph
-    this.autoFitView(nodes, activePath);
-
-    // Start 60fps physics simulation for silky smooth dragging & micro-settling
-    this.wakeSimulation(0.6);
   }
 
   computePhysics(alpha) {
-    const { nodes, nodeMap, edges } = this.graphData;
-    const repulseK = 22000;
-    const springLen = 140;
-    const minDistance = 70;
+    const { nodes, nodeMap, edges, undirectedEdges } = this.graphData;
+    if (!nodes || !nodes.length) return;
 
-    // 1. Repulsion & Collision barrier
+    const repulseStrength = 36000;
+    const springLen = 150;
+    const springK = 0.045;
+    const gravity = 0.005;
+    const minCollisionDist = 75;
+    const maxRepulseDist = 420;
+
+    // 1. All-pairs Coulomb repulsion with local neighborhood cutoff (prevents outward hollow ballooning)
     for (let i = 0; i < nodes.length; i++) {
       for (let j = i + 1; j < nodes.length; j++) {
         const a = nodes[i];
         const b = nodes[j];
         let dx = b.x - a.x;
         let dy = b.y - a.y;
-        let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-
-        if (dist < minDistance) {
-          let push = (minDistance - dist) * 0.25 * alpha;
-          let px = (dx / dist) * push;
-          let py = (dy / dist) * push;
-          if (a !== this.draggedNode) { a.x -= px; a.y -= py; }
-          if (b !== this.draggedNode) { b.x += px; b.y += py; }
+        let distSq = dx * dx + dy * dy;
+        let dist = Math.sqrt(distSq);
+        if (!dist || dist < 0.1) {
+          dx = (Math.random() - 0.5) || 1;
+          dy = (Math.random() - 0.5) || 1;
+          distSq = dx * dx + dy * dy;
+          dist = Math.sqrt(distSq);
         }
 
-        let force = (repulseK / (dist * dist + 150)) * alpha;
-        let fx = (dx / dist) * force;
-        let fy = (dy / dist) * force;
-        if (a !== this.draggedNode) { a.vx -= fx; a.vy -= fy; }
-        if (b !== this.draggedNode) { b.vx += fx; b.vy += fy; }
+        // Soft collision buffer if nodes get too close to prevent overlapping circles and text labels
+        if (dist < minCollisionDist) {
+          const push = (minCollisionDist - dist) * 0.45 * alpha;
+          const px = (dx / dist) * push;
+          const py = (dy / dist) * push;
+          if (a !== this.draggedNode && !a.isPinned) { a.vx -= px; a.vy -= py; }
+          if (b !== this.draggedNode && !b.isPinned) { b.vx += px; b.vy += py; }
+        }
+
+        // Smooth neighborhood Coulomb repulsion
+        if (dist < maxRepulseDist) {
+          const force = (repulseStrength / (distSq + 200)) * alpha;
+          const fx = (dx / dist) * force;
+          const fy = (dy / dist) * force;
+          if (a !== this.draggedNode && !a.isPinned) { a.vx -= fx; a.vy -= fy; }
+          if (b !== this.draggedNode && !b.isPinned) { b.vx += fx; b.vy += fy; }
+        }
       }
     }
 
-    // 2. Spring attraction
-    for (const e of edges) {
+    // 2. Spring attraction along connected relations (CORRECT PHYSICS: pulls connected nodes together!)
+    const physicsEdges = undirectedEdges || edges;
+    for (const e of physicsEdges) {
       const a = nodeMap.get(e.sourceId.toLowerCase());
       const b = nodeMap.get(e.targetId.toLowerCase());
       if (!a || !b) continue;
       let dx = b.x - a.x;
       let dy = b.y - a.y;
-      let dist = Math.sqrt(dx * dx + dy * dy) || 1;
-      let force = (dist - springLen) * 0.05 * alpha;
-      let fx = (dx / dist) * force;
-      let fy = (dy / dist) * force;
-      if (a !== this.draggedNode) { a.vx += fx; a.vy += fy; }
-      if (b !== this.draggedNode) { b.vx += fx; b.vy += fy; }
+      let dist = Math.sqrt(dx * dx + dy * dy);
+      if (!dist || dist < 0.001) continue;
+
+      const displacement = dist - springLen;
+      const force = displacement * springK * alpha;
+      const fx = (dx / dist) * force;
+      const fy = (dy / dist) * force;
+      // a is pulled towards b (+fx, +fy), b is pulled towards a (-fx, -fy)
+      if (a !== this.draggedNode && !a.isPinned) { a.vx += fx; a.vy += fy; }
+      if (b !== this.draggedNode && !b.isPinned) { b.vx -= fx; b.vy -= fy; }
     }
 
-    // 3. Apply velocities & damping
+    // 3. Degree-weighted radial center gravity & velocity damping (Hubs in center, leaves on outer rim, circular shape)
+    const maxDeg = Math.max(...nodes.map(n => n.deg || 0), 1);
     for (const n of nodes) {
-      if (n === this.draggedNode) continue;
-      n.vx -= n.x * 0.005 * alpha;
-      n.vy -= n.y * 0.005 * alpha;
-      n.x += n.vx * 0.8;
-      n.y += n.vy * 0.8;
+      if (n === this.draggedNode || n.isPinned) {
+        n.vx = 0;
+        n.vy = 0;
+        continue;
+      }
+
+      // Ensure no NaN / Infinity
+      if (!Number.isFinite(n.x) || Number.isNaN(n.x)) { n.x = 0; n.vx = 0; }
+      if (!Number.isFinite(n.y) || Number.isNaN(n.y)) { n.y = 0; n.vy = 0; }
+
+      const deg = n.deg || 0;
+      const degRatio = deg / maxDeg; // 0 for unconnected, up to 1.0 for top hub
+
+      // Degree-weighted center gravity:
+      // High-degree hubs experience strong central gravity pulling them to the core (0, 0)
+      // Unconnected and low-degree nodes experience minimal inward pull so repulsion pushes them to the periphery
+      const nodeGravity = gravity * (0.12 + 1.48 * degRatio);
+      n.vx -= n.x * nodeGravity * alpha;
+      n.vy -= n.y * nodeGravity * alpha;
+
+      const distFromOrigin = Math.sqrt(n.x * n.x + n.y * n.y) || 1;
+
+      // Unconnected notes (deg === 0): gently float out to the outer ring (r >= 220)
+      if (deg === 0 && distFromOrigin < 220) {
+        const pushOut = (220 - distFromOrigin) * 0.03 * alpha;
+        n.vx += (n.x / distFromOrigin) * pushOut;
+        n.vy += (n.y / distFromOrigin) * pushOut;
+      }
+
+      // Safe outer boundary dampening (maintains balanced circular shape like native Obsidian graph)
+      const maxRadius = 380;
+      if (distFromOrigin > maxRadius) {
+        const pull = (distFromOrigin - maxRadius) * 0.16 * alpha;
+        n.vx -= (n.x / distFromOrigin) * pull;
+        n.vy -= (n.y / distFromOrigin) * pull;
+      }
+
+      // Clamp max velocity for silky smoothness
+      const speed = Math.sqrt(n.vx * n.vx + n.vy * n.vy);
+      const maxSpeed = 12;
+      if (speed > maxSpeed) {
+        n.vx = (n.vx / speed) * maxSpeed;
+        n.vy = (n.vy / speed) * maxSpeed;
+      }
+
+      n.x += n.vx * 0.88;
+      n.y += n.vy * 0.88;
       n.vx *= 0.82;
       n.vy *= 0.82;
     }
   }
 
-  wakeSimulation(alphaBoost = 0.5) {
+  wakeSimulation(alphaBoost = 0.3) {
     this.alpha = Math.max(this.alpha || 0, alphaBoost);
     if (!this.animFrameId) {
       this.animFrameId = requestAnimationFrame(this.stepSimulation.bind(this));
@@ -1648,9 +2080,14 @@ class RelationGraphView extends obsidian.ItemView {
   }
 
   stepSimulation() {
-    if (this.alpha <= 0.003 && !this.draggedNode) {
+    if (this.alpha <= 0.005 && !this.draggedNode) {
       this.animFrameId = null;
       return;
+    }
+
+    // Keep simulation lively while dragging so connected nodes react in real time
+    if (this.draggedNode) {
+      this.alpha = Math.max(this.alpha, 0.35);
     }
 
     this.computePhysics(this.alpha);
@@ -1658,80 +2095,119 @@ class RelationGraphView extends obsidian.ItemView {
     const { nodeElements, edgeElements } = this.graphData;
 
     // 4. Update SVG positions smoothly
-    for (const el of nodeElements) {
-      el.g.setAttribute("transform", `translate(${el.node.x}, ${el.node.y})`);
-    }
-
-    for (const el of edgeElements) {
-      el.line.setAttribute("x1", el.srcNode.x);
-      el.line.setAttribute("y1", el.srcNode.y);
-      el.line.setAttribute("x2", el.tgtNode.x);
-      el.line.setAttribute("y2", el.tgtNode.y);
-
-      if (el.textEl && el.isActive) {
-        const midX = (el.srcNode.x + el.tgtNode.x) / 2;
-        const midY = (el.srcNode.y + el.tgtNode.y) / 2;
-        el.textEl.setAttribute("x", midX);
-        el.textEl.setAttribute("y", midY - 8);
+    if (nodeElements && nodeElements.length) {
+      for (const el of nodeElements) {
+        el.g.setAttribute("transform", `translate(${el.node.x}, ${el.node.y})`);
       }
     }
 
-    // Decay energy
+    if (edgeElements && edgeElements.length) {
+      for (const el of edgeElements) {
+        el.line.setAttribute("x1", el.srcNode.x);
+        el.line.setAttribute("y1", el.srcNode.y);
+        el.line.setAttribute("x2", el.tgtNode.x);
+        el.line.setAttribute("y2", el.tgtNode.y);
+
+        if (el.textEl && el.isActive) {
+          const midX = (el.srcNode.x + el.tgtNode.x) / 2;
+          const midY = (el.srcNode.y + el.tgtNode.y) / 2;
+          el.textEl.setAttribute("x", midX);
+          el.textEl.setAttribute("y", midY - 8);
+        }
+      }
+    }
+
+    // Update active path glowing lines during simulation
+    if (this.activePathElements && this.activePathElements.length) {
+      for (const el of this.activePathElements) {
+        if (!el.srcNode || !el.tgtNode) continue;
+        el.haloLine.setAttribute("x1", el.srcNode.x);
+        el.haloLine.setAttribute("y1", el.srcNode.y);
+        el.haloLine.setAttribute("x2", el.tgtNode.x);
+        el.haloLine.setAttribute("y2", el.tgtNode.y);
+
+        el.activeLine.setAttribute("x1", el.srcNode.x);
+        el.activeLine.setAttribute("y1", el.srcNode.y);
+        el.activeLine.setAttribute("x2", el.tgtNode.x);
+        el.activeLine.setAttribute("y2", el.tgtNode.y);
+
+        if (el.textEl) {
+          const midX = (el.srcNode.x + el.tgtNode.x) / 2;
+          const midY = (el.srcNode.y + el.tgtNode.y) / 2;
+          el.textEl.setAttribute("x", midX);
+          el.textEl.setAttribute("y", midY - 8);
+        }
+      }
+    }
+
+    // Decay energy smoothly
     if (!this.draggedNode) {
-      this.alpha *= 0.985;
+      this.alpha *= 0.95;
     }
 
     this.animFrameId = requestAnimationFrame(this.stepSimulation.bind(this));
   }
 
-  autoFitView(nodes, activePath) {
-    const width = this.canvasWrapper.clientWidth || 800;
-    const height = this.canvasWrapper.clientHeight || 600;
-
-    let targetNodes = nodes;
-    if (activePath && activePath.length > 0) {
-      const activeIds = new Set(activePath.map(s => s.node));
-      const filtered = nodes.filter(n => activeIds.has(n.id.toLowerCase()));
-      if (filtered.length) targetNodes = filtered;
+  getClusterBounds() {
+    const nodes = (this.graphData && this.graphData.nodes) || [];
+    const validNodes = nodes.filter(n => Number.isFinite(n.x) && Number.isFinite(n.y));
+    if (!validNodes.length) {
+      return { minX: -100, maxX: 100, minY: -100, maxY: 100, midX: 0, midY: 0, width: 200, height: 200 };
     }
-
     let minX = Infinity, maxX = -Infinity, minY = Infinity, maxY = -Infinity;
-    for (const n of targetNodes) {
+    for (const n of validNodes) {
       if (n.x < minX) minX = n.x;
       if (n.x > maxX) maxX = n.x;
       if (n.y < minY) minY = n.y;
       if (n.y > maxY) maxY = n.y;
     }
-
-    const boundW = Math.max(maxX - minX + 240, 320);
-    const boundH = Math.max(maxY - minY + 240, 320);
-    const midX = (minX + maxX) / 2;
-    const midY = (minY + maxY) / 2;
-
-    const scaleX = width / boundW;
-    const scaleY = height / boundH;
-    this.zoom = Math.min(Math.max(Math.min(scaleX, scaleY), 0.5), 1.6);
-
-    this.panX = (width / 2) - (midX * this.zoom);
-    this.panY = (height / 2) - (midY * this.zoom);
-    this.updateTransform();
-  }
-
-  applyZoom(factor, clientX = null, clientY = null) {
-    const oldZoom = this.zoom;
-    this.zoom = Math.min(Math.max(this.zoom * factor, 0.25), 4.0);
-
-    const rect = this.canvasWrapper.getBoundingClientRect();
-    const cx = clientX != null ? clientX - rect.left : rect.width / 2;
-    const cy = clientY != null ? clientY - rect.top : rect.height / 2;
-
-    this.panX = cx - ((cx - this.panX) * (this.zoom / oldZoom));
-    this.panY = cy - ((cy - this.panY) * (this.zoom / oldZoom));
-    this.updateTransform();
+    return {
+      minX, maxX, minY, maxY,
+      midX: (minX + maxX) / 2,
+      midY: (minY + maxY) / 2,
+      width: Math.max(maxX - minX, 120),
+      height: Math.max(maxY - minY, 120)
+    };
   }
 
   resetView() {
-    this.autoFitView(this.graphData.nodes, this.paths[this.currentPathIndex]);
+    if (!this.canvasWrapper) return;
+    const rect = this.canvasWrapper.getBoundingClientRect();
+    const width = rect.width > 0 ? rect.width : (this.canvasWrapper.clientWidth || 800);
+    const height = rect.height > 0 ? rect.height : (this.canvasWrapper.clientHeight || 600);
+    if (width <= 0 || height <= 0) return;
+
+    const bounds = this.getClusterBounds();
+    const padding = 90;
+    const boundW = bounds.width + padding * 2;
+    const boundH = bounds.height + padding * 2;
+
+    const scaleX = width / boundW;
+    const scaleY = height / boundH;
+    this.zoom = Math.min(Math.max(Math.min(scaleX, scaleY), 0.35), 1.5);
+
+    // Keep cluster center exactly at the viewport center
+    this.panX = (width / 2) - (bounds.midX * this.zoom);
+    this.panY = (height / 2) - (bounds.midY * this.zoom);
+    this.updateTransform();
+  }
+
+  autoFitView(nodes = null, activePath = null) {
+    this.resetView();
+  }
+
+  applyZoom(factor) {
+    this.zoom = Math.min(Math.max(this.zoom * factor, 0.15), 4.0);
+
+    const rect = this.canvasWrapper.getBoundingClientRect();
+    const width = rect.width > 0 ? rect.width : (this.canvasWrapper.clientWidth || 800);
+    const height = rect.height > 0 ? rect.height : (this.canvasWrapper.clientHeight || 600);
+    const bounds = this.getClusterBounds();
+
+    // Zooming scales with the dots cluster staying in the center
+    this.panX = (width / 2) - (bounds.midX * this.zoom);
+    this.panY = (height / 2) - (bounds.midY * this.zoom);
+    this.updateTransform();
   }
 
   updateTransform() {
@@ -1755,6 +2231,23 @@ class RelationGraphView extends obsidian.ItemView {
       item.setTitle("Open in new tab")
         .setIcon("external-link")
         .onClick(() => this.app.workspace.openLinkText(node.id, "", "tab"));
+    });
+
+    menu.addSeparator();
+
+    // 3. Pin / Unpin node position
+    menu.addItem(item => {
+      item.setTitle(node.isPinned ? "Unpin position" : "Pin position")
+        .setIcon(node.isPinned ? "pin-off" : "pin")
+        .onClick(() => {
+          node.isPinned = !node.isPinned;
+          if (node.isPinned) {
+            this.explicitPinnedSet.add(node.id.toLowerCase());
+          } else {
+            this.explicitPinnedSet.delete(node.id.toLowerCase());
+            this.wakeSimulation(0.35);
+          }
+        });
     });
 
     menu.addSeparator();
@@ -1786,29 +2279,208 @@ class RelationGraphView extends obsidian.ItemView {
     const cache = this.app.metadataCache.getFileCache(node.file);
     const fm = cache?.frontmatter || {};
 
-    let html = `<h4>${node.id}</h4>`;
-    const keys = Object.keys(fm).filter(k => k !== "position").slice(0, 6);
-    for (const k of keys) {
-      let val = fm[k];
-      if (typeof val === "object") val = JSON.stringify(val);
-      html += `<div class="rpg-tooltip-prop"><strong>${k}:</strong> ${val}</div>`;
+    // 1. Gather all directly connected neighbor IDs from graph edges
+    const targetId = (node.id || "").toLowerCase();
+    const neighborIds = new Set();
+    const outgoingEdgeProps = new Set();
+    const edges = (this.graphData && this.graphData.edges) || [];
+
+    for (const e of edges) {
+      const src = (e.sourceId || "").toLowerCase();
+      const tgt = (e.targetId || "").toLowerCase();
+      if (src === targetId) {
+        neighborIds.add(tgt);
+        if (e.propKey) outgoingEdgeProps.add(e.propKey.toLowerCase());
+      } else if (tgt === targetId) {
+        neighborIds.add(src);
+      }
     }
 
-    this.tooltip.innerHTML = html;
+    // 2. Classify properties: direct relationships vs remaining
+    const directProps = [];
+    const remainingProps = [];
+
+    const allKeys = Object.keys(fm).filter(k => k.toLowerCase() !== "position");
+
+    const cleanLink = (s) => {
+      if (s == null) return "";
+      if (typeof s === "string") {
+        return s.replace(/\[\[([^\]|#]+)(?:[|#][^\]]*)?\]\]/g, "$1").trim();
+      }
+      if (typeof s === "object") {
+        return s.displayText || s.link || s.original || JSON.stringify(s);
+      }
+      return String(s);
+    };
+
+    const formatVal = (val) => {
+      if (val == null) return "";
+      if (Array.isArray(val)) {
+        return val.map(cleanLink).filter(Boolean).join(", ");
+      }
+      return cleanLink(val);
+    };
+
+    for (const k of allKeys) {
+      const val = fm[k];
+      const formatted = formatVal(val);
+      // Skip empty properties (no empty daughter/husband rows)
+      if (!formatted || formatted.trim() === "") continue;
+
+      const kLower = k.toLowerCase();
+      const linkedNames = linksUnderProp(cache, k);
+      const connectsToNeighbor = linkedNames.some(name => neighborIds.has((name || "").toLowerCase()));
+      const isDirectEdgeProp = outgoingEdgeProps.has(kLower);
+
+      if (connectsToNeighbor || isDirectEdgeProp) {
+        directProps.push({ key: k, val: formatted, isDirect: true });
+      } else {
+        remainingProps.push({ key: k, val: formatted, isDirect: false });
+      }
+    }
+
+    // Sort remaining props: put base properties near the bottom
+    remainingProps.sort((a, b) => {
+      const aIsBase = a.key.toLowerCase().includes("base");
+      const bIsBase = b.key.toLowerCase().includes("base");
+      if (aIsBase && !bIsBase) return 1;
+      if (!aIsBase && bIsBase) return -1;
+      return a.key.localeCompare(b.key, undefined, { sensitivity: "base" });
+    });
+
+    const displayProps = [...directProps, ...remainingProps].slice(0, 10);
+
+    // Determine badge text
+    let badgeText = `${neighborIds.size} LINKS`;
+    const sLower = (this.personA || "").toLowerCase();
+    const eLower = (this.personB || "").toLowerCase();
+    if (targetId === sLower) badgeText = "PERSON A";
+    else if (targetId === eLower) badgeText = "PERSON B";
+    else if (node.isIntermediate) badgeText = "PATH";
+
+    let rowsHtml = "";
+    if (displayProps.length === 0) {
+      rowsHtml = `<div class="rpg-tt-row"><span class="rpg-tt-key">Properties:</span><span class="rpg-tt-val" style="color: #64748b; font-style: italic;">None</span></div>`;
+    } else {
+      for (const item of displayProps) {
+        const isBase = item.key.toLowerCase().includes("base");
+        const keyCls = item.isDirect ? "rpg-tt-key rpg-tt-key-direct" : "rpg-tt-key";
+        const valCls = isBase ? "rpg-tt-val rpg-tt-val-base" : "rpg-tt-val";
+        rowsHtml += `
+          <div class="rpg-tt-row">
+            <span class="${keyCls}">${item.key}:</span>
+            <span class="${valCls}" title="${item.val}">${item.val}</span>
+          </div>
+        `;
+      }
+    }
+
+    this.tooltip.innerHTML = `
+      <div class="rpg-tt-header">
+        <div class="rpg-tt-title">
+          <span class="rpg-tt-dot"></span>
+          <span class="rpg-tt-name">${node.id}</span>
+        </div>
+        <span class="rpg-tt-badge">${badgeText}</span>
+      </div>
+      <div class="rpg-tt-body">
+        ${rowsHtml}
+      </div>
+      <div class="rpg-tt-footer">
+        <span>Obsidian Note (Read-Only)</span>
+        <span class="rpg-tt-hint">Click to Open</span>
+      </div>
+    `;
+
+    // Clear any previous coordinates and display docked in the right corner of canvas
+    this.tooltip.style.left = "";
+    this.tooltip.style.top = "";
     this.tooltip.style.display = "block";
-    this.moveTooltip(event);
+    this.tooltip.addClass("visible");
   }
 
   moveTooltip(event) {
-    const rect = this.canvasWrapper.getBoundingClientRect();
-    const x = event.clientX - rect.left + 15;
-    const y = event.clientY - rect.top + 15;
-    this.tooltip.style.left = `${x}px`;
-    this.tooltip.style.top = `${y}px`;
+    // Docked in the right corner of the canvas (Inspector Panel)
   }
 
   hideTooltip() {
+    this.tooltip.removeClass("visible");
     this.tooltip.style.display = "none";
+  }
+
+  /* ─── Connected Node Highlighting & Non-Connected Dimming (Native Obsidian Graph Feel) ─── */
+
+  highlightConnected(node) {
+    if (!this.graphData || !node) return;
+    const targetId = (node.id || "").toLowerCase();
+    const neighborIds = new Set();
+    const edges = this.graphData.edges || [];
+
+    for (const e of edges) {
+      const src = (e.sourceId || "").toLowerCase();
+      const tgt = (e.targetId || "").toLowerCase();
+      if (src === targetId) {
+        neighborIds.add(tgt);
+      } else if (tgt === targetId) {
+        neighborIds.add(src);
+      }
+    }
+
+    // 1. Highlight focused node, slightly highlight direct neighbors, and dim non-connected nodes
+    const nodeElements = this.graphData.nodeElements || [];
+    for (const el of nodeElements) {
+      const nid = (el.node.id || "").toLowerCase();
+      if (nid === targetId) {
+        el.g.classList.add("rpg-node-hover-focus");
+        el.g.classList.remove("rpg-node-hover-neighbor", "rpg-node-dimmed");
+      } else if (neighborIds.has(nid)) {
+        el.g.classList.add("rpg-node-hover-neighbor");
+        el.g.classList.remove("rpg-node-hover-focus", "rpg-node-dimmed");
+      } else {
+        el.g.classList.add("rpg-node-dimmed");
+        el.g.classList.remove("rpg-node-hover-focus", "rpg-node-hover-neighbor");
+      }
+    }
+
+    // 2. Highlight directly connected edges and dim non-connected edges
+    const edgeElements = this.graphData.edgeElements || [];
+    for (const el of edgeElements) {
+      const src = el.srcNode ? (el.srcNode.id || "").toLowerCase() : "";
+      const tgt = el.tgtNode ? (el.tgtNode.id || "").toLowerCase() : "";
+      const isConnected = (src === targetId && neighborIds.has(tgt)) || (tgt === targetId && neighborIds.has(src));
+
+      if (isConnected) {
+        el.line.classList.add("rpg-edge-hover-highlight");
+        el.line.classList.remove("rpg-edge-dimmed");
+        if (el.textEl) {
+          el.textEl.classList.add("rpg-edge-text-highlight");
+          el.textEl.classList.remove("rpg-edge-text-dimmed");
+        }
+      } else {
+        el.line.classList.add("rpg-edge-dimmed");
+        el.line.classList.remove("rpg-edge-hover-highlight");
+        if (el.textEl) {
+          el.textEl.classList.add("rpg-edge-text-dimmed");
+          el.textEl.classList.remove("rpg-edge-text-highlight");
+        }
+      }
+    }
+  }
+
+  unhighlightConnected() {
+    if (this.graphData && this.graphData.nodeElements) {
+      for (const el of this.graphData.nodeElements) {
+        el.g.classList.remove("rpg-node-hover-focus", "rpg-node-hover-neighbor", "rpg-node-dimmed");
+      }
+    }
+    if (this.graphData && this.graphData.edgeElements) {
+      for (const el of this.graphData.edgeElements) {
+        el.line.classList.remove("rpg-edge-hover-highlight", "rpg-edge-dimmed");
+        if (el.textEl) {
+          el.textEl.classList.remove("rpg-edge-text-highlight", "rpg-edge-text-dimmed");
+        }
+      }
+    }
   }
 }
 
@@ -1894,6 +2566,22 @@ class FamilyTreeView extends obsidian.ItemView {
   async onOpen() {
     this.buildUI();
     this.loadAndRenderTree();
+
+    let debounceTimer = null;
+    const triggerAutoRefresh = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        this.populatePropSelect();
+        this.populateValueSelect();
+        this.populateExcludePropSelect();
+        this.loadAndRenderTree();
+      }, 300);
+    };
+
+    this.registerEvent(this.app.metadataCache.on("changed", () => triggerAutoRefresh()));
+    this.registerEvent(this.app.vault.on("create", () => triggerAutoRefresh()));
+    this.registerEvent(this.app.vault.on("delete", () => triggerAutoRefresh()));
+    this.registerEvent(this.app.vault.on("rename", () => triggerAutoRefresh()));
   }
 
   async onClose() {
@@ -2049,41 +2737,7 @@ class FamilyTreeView extends obsidian.ItemView {
       ""
     );
 
-    // Right Controls: Reset View, Zoom & Refresh Buttons (Row 1 Right, above Legend)
-    const rightGrp1 = row1.createDiv({ cls: "ft-toolbar-right" });
-
-    // Universal Reset View Button
-    const resetBtn = rightGrp1.createEl("button", {
-      cls: "ft-btn",
-      attr: { title: "Universal Reset: Restore all collapsed branches, reset zoom and pan" },
-    });
-    resetBtn.innerHTML = "<span>⟲</span> Reset View";
-    resetBtn.addEventListener("click", () => this.universalReset());
-
-    // Zoom Controls
-    const zoomGrp = rightGrp1.createDiv({ cls: "ft-btn-group" });
-    const zoomOutBtn = zoomGrp.createEl("button", { cls: "ft-btn-sm", text: "−" });
-    zoomOutBtn.addEventListener("click", () => this.applyZoom(0.85));
-
-    this.zoomDisplay = zoomGrp.createSpan({ cls: "ft-zoom-readout", text: "100%" });
-
-    const zoomInBtn = zoomGrp.createEl("button", { cls: "ft-btn-sm", text: "+" });
-    zoomInBtn.addEventListener("click", () => this.applyZoom(1.15));
-
-    // Refresh Button
-    const refreshBtn = rightGrp1.createEl("button", {
-      cls: "ft-btn",
-      attr: { title: "Refresh vault tree data" },
-    });
-    refreshBtn.setText("↻ Refresh");
-    refreshBtn.addEventListener("click", () => {
-      this.populatePropSelect();
-      this.populateValueSelect();
-      this.populateExcludePropSelect();
-      this.loadAndRenderTree();
-    });
-
-    // Row 2: Search Person & Card Properties (Left) | Male/Female/Marriage Legend (Right)
+    // Row 2: Search Person & Card Properties (Left) | Action Buttons & Legend (Right)
     const row2 = toolbar.createDiv({ cls: "ft-toolbar-row" });
 
     // Left Group: Search + Card Properties (below Base/Exclude in 2nd row)
@@ -2131,9 +2785,43 @@ class FamilyTreeView extends obsidian.ItemView {
       }
     );
 
-    // Right Group: Male/Female/Marriage Legend (Row 2 Right - directly under action buttons)
+    // Right Group: Universal Reset, Zoom, Refresh & Legend
     const rightGrp2 = row2.createDiv({ cls: "ft-toolbar-right" });
 
+    // Universal Reset View Button
+    const resetBtn = rightGrp2.createEl("button", {
+      cls: "ft-btn",
+      attr: { title: "Universal Reset: Restore all collapsed branches, reset zoom and pan" },
+    });
+    resetBtn.innerHTML = "<span>⟲</span> Reset View";
+    resetBtn.addEventListener("click", () => this.universalReset());
+
+    // Zoom Controls
+    const zoomGrp = rightGrp2.createDiv({ cls: "ft-btn-group" });
+    const zoomOutBtn = zoomGrp.createEl("button", { cls: "ft-btn-sm", text: "−" });
+    zoomOutBtn.addEventListener("click", () => this.applyZoom(0.85));
+
+    this.zoomDisplay = zoomGrp.createSpan({ cls: "ft-zoom-readout", text: "100%" });
+
+    const zoomInBtn = zoomGrp.createEl("button", { cls: "ft-btn-sm", text: "+" });
+    zoomInBtn.addEventListener("click", () => this.applyZoom(1.15));
+
+    // Refresh Button
+    const refreshBtn = rightGrp2.createEl("button", {
+      cls: "ft-btn",
+      attr: { title: "Refresh vault tree data" },
+    });
+    refreshBtn.setText("↻ Refresh");
+    refreshBtn.addEventListener("click", () => {
+      this.populatePropSelect();
+      this.populateValueSelect();
+      this.populateExcludePropSelect();
+      this.loadAndRenderTree();
+    });
+
+    rightGrp2.createDiv({ cls: "ft-divider-v" });
+
+    // Legend
     const legend = rightGrp2.createDiv({ cls: "ft-legend" });
     const maleLeg = legend.createDiv({ cls: "ft-legend-item" });
     maleLeg.createDiv({ cls: "ft-legend-dot male" });
@@ -2171,7 +2859,7 @@ class FamilyTreeView extends obsidian.ItemView {
       </div>
       <div class="ft-tt-body">
         <div class="ft-tt-row"><span class="ft-tt-key">File:</span><span class="ft-tt-val" id="ftTtFile">Note.md</span></div>
-        <div class="ft-tt-row"><span class="ft-tt-key">Base:</span><span class="ft-tt-val ft-tt-val-base" id="ftTtBase">Life.base</span></div>
+        <div class="ft-tt-row"><span class="ft-tt-key">Base:</span><span class="ft-tt-val ft-tt-val-base" id="ftTtBase">None</span></div>
         <div class="ft-tt-row"><span class="ft-tt-key">Parents:</span><span class="ft-tt-val" id="ftTtParents">None</span></div>
         <div class="ft-tt-row"><span class="ft-tt-key">Spouse:</span><span class="ft-tt-val" id="ftTtSpouse">None</span></div>
         <div class="ft-tt-row"><span class="ft-tt-key">Siblings:</span><span class="ft-tt-val" id="ftTtSiblings">None</span></div>
@@ -2368,15 +3056,93 @@ class FamilyTreeView extends obsidian.ItemView {
     }
   }
 
+  /* ─────────────────────────── Person Note & Base Matching Helpers ─────────────────────────── */
+
+  isPersonNode(file, cache) {
+    if (!file || !(file instanceof obsidian.TFile) || file.extension !== "md") return false;
+    const bLo = file.basename.toLowerCase().trim();
+
+    const exclVals = [
+      ...(this.excludeValues || []),
+      ...(this.plugin.settings.excludeValues || []),
+      ...(this.plugin.settings.ft_excludeValues || [])
+    ].map(v => bare(String(v || "")).toLowerCase().trim()).filter(Boolean);
+
+    if (exclVals.includes(bLo)) return false;
+
+    if (!cache || !cache.frontmatter) return false;
+    const fm = cache.frontmatter;
+
+    const exclProp = (this.excludeProperty || this.plugin.settings.ft_excludePropertyName || this.plugin.settings.excludePropertyName || "").toLowerCase().trim();
+    const exclPropVal = (this.plugin.settings.ft_excludePropertyValue || this.plugin.settings.excludePropertyValue || "").toLowerCase().trim();
+
+    if (exclProp && exclProp !== "(none)") {
+      const realEp = Object.keys(fm).find(x => x.toLowerCase() === exclProp);
+      if (realEp && fm[realEp] != null) {
+        const rawVal = fm[realEp];
+        const arr = Array.isArray(rawVal) ? rawVal : [rawVal];
+        const vals = arr.map(x => bare(typeof x === "object" ? (x.link || "") : String(x || "")).toLowerCase().trim()).filter(Boolean);
+        if (vals.some(v => (exclPropVal && v === exclPropVal) || exclVals.includes(v))) {
+          return false;
+        }
+      }
+    }
+
+    return true;
+  }
+
+  getFilesMatchingBase() {
+    const baseProp = (this.baseProperty || "base").toLowerCase();
+    const filterVal = (this.baseFilterValue || "ALL").trim();
+    const markdownFiles = this.app.vault.getMarkdownFiles();
+    const result = [];
+
+    const matchBase = (b, filter) => {
+      if (!b || !filter) return false;
+      const bLower = b.toLowerCase().trim();
+      const fLower = filter.toLowerCase().trim();
+      if (bLower === fLower) return true;
+      const bClean = bLower.replace(/\.md$/, "").replace(/\.base$/, "");
+      const fClean = fLower.replace(/\.md$/, "").replace(/\.base$/, "");
+      return bClean === fClean;
+    };
+
+    for (const f of markdownFiles) {
+      const cache = this.app.metadataCache.getFileCache(f);
+      if (!this.isPersonNode(f, cache)) continue;
+
+      const fm = cache.frontmatter;
+      const bKey = Object.keys(fm).find(k => k.toLowerCase() === baseProp);
+      const bRaw = bKey ? fm[bKey] : null;
+
+      let fileBases = [];
+      if (bRaw) {
+        const arr = Array.isArray(bRaw) ? bRaw : [bRaw];
+        fileBases = arr.map(x => bare(typeof x === "string" ? x : (x.link || ""))).filter(Boolean);
+      }
+
+      if (baseProp && filterVal && filterVal !== "ALL") {
+        if (!fileBases.some(b => matchBase(b, filterVal))) {
+          continue;
+        }
+      }
+
+      result.push({ file: f, cache, fileBases });
+    }
+    return result;
+  }
+
   /* ─────────────────────────── Data Parsing (Strictly Read-Only) ─────────────────────────── */
 
   loadAndRenderTree() {
     try {
-      const getPropKeys = (syncKey, ftKey) => {
+      const getPropKeys = (syncKey, ftKey, fallbacks = []) => {
         const sVal = this.plugin.settings[syncKey];
         const fVal = this.plugin.settings[ftKey];
         const val = (sVal && sVal.length > 0) ? sVal : fVal;
-        return parsePropList(val);
+        const list = parsePropList(val);
+        if (list.length > 0) return list;
+        return fallbacks;
       };
 
       const fatherKeys = getPropKeys("fatherProperty", "fatherProps");
@@ -2389,255 +3155,246 @@ class FamilyTreeView extends obsidian.ItemView {
       const sisterKeys = getPropKeys("sisterProperty", "sisterProps");
       const genderKeys = getPropKeys("genderProperty", "genderProps");
 
-      const baseProp = (this.baseProperty || "base").toLowerCase();
       const filterVal = (this.baseFilterValue || "ALL").trim();
-
-      // Excluded Property & Value filter (e.g. type: location, landmark)
-      const exclProp = (this.excludeProperty || "").toLowerCase().trim();
-      const exclVals = (this.excludeValues || []).map(v => v.toLowerCase().trim()).filter(Boolean);
-      const hasExcludeFilter = exclProp && exclProp !== "(none)" && exclVals.length > 0;
-
-      const markdownFiles = this.app.vault.getMarkdownFiles();
+      const matchingEntries = this.getFilesMatchingBase();
       const peopleMap = {};
 
-      const matchBase = (b, filter) => {
-        if (!b || !filter) return false;
-        const bLower = b.toLowerCase().trim();
-        const fLower = filter.toLowerCase().trim();
-        if (bLower === fLower) return true;
-        const bClean = bLower.replace(/\.md$/, "").replace(/\.base$/, "");
-        const fClean = fLower.replace(/\.md$/, "").replace(/\.base$/, "");
-        return bClean === fClean;
-      };
-
       // 1. First pass: Collect all person notes matching base filter & NOT matching exclude property + value
-      for (const f of markdownFiles) {
-        const cache = this.app.metadataCache.getFileCache(f);
-        if (!cache || !cache.frontmatter) continue;
-
+      for (const entry of matchingEntries) {
+        const f = entry.file;
+        const cache = entry.cache;
         const fm = cache.frontmatter;
-
-        // EXCLUSION: If note has excluded property matching ANY excluded value, skip it!
-        if (hasExcludeFilter) {
-          const realExclKey = Object.keys(fm).find(k => k.toLowerCase() === exclProp);
-          if (realExclKey) {
-            const rawVal = fm[realExclKey];
-            let valArr = [];
-            if (Array.isArray(rawVal)) {
-              valArr = rawVal.map(x => bare(typeof x === "string" ? x : (x.link || ""))).filter(Boolean);
-            } else if (rawVal !== null && rawVal !== undefined) {
-              valArr = [bare(typeof rawVal === "string" ? rawVal : (rawVal.link || String(rawVal)))];
-            }
-            if (valArr.some(v => exclVals.includes(v.toLowerCase().trim()))) {
-              continue; // Skip excluded note!
-            }
-          }
-        }
-
-        const bKey = Object.keys(fm).find(k => k.toLowerCase() === baseProp);
-        const bRaw = bKey ? fm[bKey] : null;
-
-        let fileBases = [];
-        if (bRaw) {
-          const arr = Array.isArray(bRaw) ? bRaw : [bRaw];
-          fileBases = arr.map(x => bare(typeof x === "string" ? x : (x.link || ""))).filter(Boolean);
-        }
-
-        // Base filter check (if empty, matches all)
-        if (baseProp && filterVal && filterVal !== "ALL") {
-          if (!fileBases.some(b => matchBase(b, filterVal))) {
-            continue;
-          }
-        }
-
+        const fileBases = entry.fileBases;
         const id = f.basename;
+
         const fathers = extractLinksFromProperty(cache, fatherKeys);
-      const mothers = extractLinksFromProperty(cache, motherKeys);
-      const husbands = extractLinksFromProperty(cache, husbandKeys);
-      const wifes = extractLinksFromProperty(cache, wifeKeys);
-      const sons = extractLinksFromProperty(cache, sonKeys);
-      const daughters = extractLinksFromProperty(cache, daughterKeys);
-      const brothers = extractLinksFromProperty(cache, brotherKeys);
-      const sisters = extractLinksFromProperty(cache, sisterKeys);
+        const mothers = extractLinksFromProperty(cache, motherKeys);
+        const husbands = extractLinksFromProperty(cache, husbandKeys);
+        const wifes = extractLinksFromProperty(cache, wifeKeys);
+        const sons = extractLinksFromProperty(cache, sonKeys);
+        const daughters = extractLinksFromProperty(cache, daughterKeys);
+        const brothers = extractLinksFromProperty(cache, brotherKeys);
+        const sisters = extractLinksFromProperty(cache, sisterKeys);
 
-      const rawGender = extractStringFromProperty(cache, genderKeys).toLowerCase();
-      let gender = "neutral";
-      if (rawGender.startsWith("m") || rawGender === "male" || rawGender === "man") gender = "male";
-      else if (rawGender.startsWith("f") || rawGender === "female" || rawGender === "woman") gender = "female";
+        const rawGender = extractStringFromProperty(cache, genderKeys).toLowerCase();
+        let gender = "neutral";
+        if (rawGender.startsWith("m") || rawGender === "male" || rawGender === "man") gender = "male";
+        else if (rawGender.startsWith("f") || rawGender === "female" || rawGender === "woman") gender = "female";
 
-      if (gender === "neutral") {
-        if (husbands.length > 0) gender = "female";
-        else if (wifes.length > 0) gender = "male";
+        if (gender === "neutral") {
+          if (husbands.length > 0) gender = "female";
+          else if (wifes.length > 0) gender = "male";
+        }
+
+        peopleMap[id] = {
+          id,
+          name: id,
+          file: f.path,
+          base: fileBases.join(", ") || (filterVal !== "ALL" ? filterVal : "Note"),
+          gender,
+          fathers,
+          mothers,
+          parents: [...new Set([...fathers, ...mothers])],
+          husbands,
+          wifes,
+          spouses: [...new Set([...husbands, ...wifes])],
+          sons,
+          daughters,
+          children: [...new Set([...sons, ...daughters])],
+          brothers,
+          sisters,
+          siblings: [...new Set([...brothers, ...sisters])],
+          gen: 0,
+          x: 0,
+          y: 0,
+          rawFrontmatter: fm ? { ...fm } : {},
+        };
       }
 
-      peopleMap[id] = {
-        id,
-        name: id,
-        file: f.path,
-        base: fileBases.join(", ") || (filterVal !== "ALL" ? filterVal : "Note"),
-        gender,
-        fathers,
-        mothers,
-        parents: [...new Set([...fathers, ...mothers])],
-        husbands,
-        wifes,
-        spouses: [...new Set([...husbands, ...wifes])],
-        sons,
-        daughters,
-        children: [...new Set([...sons, ...daughters])],
-        brothers,
-        sisters,
-        siblings: [...new Set([...brothers, ...sisters])],
-        gen: 0,
-        x: 0,
-        y: 0,
-        rawFrontmatter: fm ? { ...fm } : {},
-      };
-    }
-
-    // 2. Second pass: Automatic Gender & Relationship Cross-Linking
-    Object.values(peopleMap).forEach(p => {
-      p.fathers.forEach(fid => {
-        if (peopleMap[fid]) peopleMap[fid].gender = "male";
-      });
-      p.mothers.forEach(mid => {
-        if (peopleMap[mid]) peopleMap[mid].gender = "female";
-      });
-      p.husbands.forEach(hid => {
-        if (peopleMap[hid]) peopleMap[hid].gender = "male";
-        if (p.gender === "neutral") p.gender = "female";
-      });
-      p.wifes.forEach(wid => {
-        if (peopleMap[wid]) peopleMap[wid].gender = "female";
-        if (p.gender === "neutral") p.gender = "male";
-      });
-      p.sons.forEach(sid => {
-        if (peopleMap[sid]) peopleMap[sid].gender = "male";
-      });
-      p.daughters.forEach(did => {
-        if (peopleMap[did]) peopleMap[did].gender = "female";
-      });
-      p.brothers.forEach(bid => {
-        if (peopleMap[bid]) peopleMap[bid].gender = "male";
-      });
-      p.sisters.forEach(sid => {
-        if (peopleMap[sid]) peopleMap[sid].gender = "female";
+      // Filter relations so they only reference people that actually exist in peopleMap
+      Object.values(peopleMap).forEach(p => {
+        p.fathers = p.fathers.filter(fid => !!peopleMap[fid]);
+        p.mothers = p.mothers.filter(mid => !!peopleMap[mid]);
+        p.parents = [...new Set([...p.fathers, ...p.mothers])];
+        p.husbands = p.husbands.filter(hid => !!peopleMap[hid]);
+        p.wifes = p.wifes.filter(wid => !!peopleMap[wid]);
+        p.spouses = [...new Set([...p.husbands, ...p.wifes])];
+        p.sons = p.sons.filter(sid => !!peopleMap[sid]);
+        p.daughters = p.daughters.filter(did => !!peopleMap[did]);
+        p.children = [...new Set([...p.sons, ...p.daughters])];
+        p.brothers = p.brothers.filter(bid => !!peopleMap[bid]);
+        p.sisters = p.sisters.filter(sid => !!peopleMap[sid]);
+        p.siblings = [...new Set([...p.brothers, ...p.sisters])];
       });
 
-      // Parents <-> Children linking
-      p.parents.forEach(parId => {
-        if (peopleMap[parId] && !peopleMap[parId].children.includes(p.id)) {
-          peopleMap[parId].children.push(p.id);
-        }
-      });
-      p.children.forEach(cid => {
-        if (peopleMap[cid] && !peopleMap[cid].parents.includes(p.id)) {
-          peopleMap[cid].parents.push(p.id);
-        }
+      // 2. Second pass: Automatic Gender & Relationship Cross-Linking
+      Object.values(peopleMap).forEach(p => {
+        p.fathers.forEach(fid => {
+          if (peopleMap[fid]) peopleMap[fid].gender = "male";
+        });
+        p.mothers.forEach(mid => {
+          if (peopleMap[mid]) peopleMap[mid].gender = "female";
+        });
+        p.husbands.forEach(hid => {
+          if (peopleMap[hid]) peopleMap[hid].gender = "male";
+          if (p.gender === "neutral") p.gender = "female";
+        });
+        p.wifes.forEach(wid => {
+          if (peopleMap[wid]) peopleMap[wid].gender = "female";
+          if (p.gender === "neutral") p.gender = "male";
+        });
+        p.sons.forEach(sid => {
+          if (peopleMap[sid]) peopleMap[sid].gender = "male";
+        });
+        p.daughters.forEach(did => {
+          if (peopleMap[did]) peopleMap[did].gender = "female";
+        });
+        p.brothers.forEach(bid => {
+          if (peopleMap[bid]) peopleMap[bid].gender = "male";
+        });
+        p.sisters.forEach(sid => {
+          if (peopleMap[sid]) peopleMap[sid].gender = "female";
+        });
+
+        // Parents <-> Children linking
+        p.parents.forEach(parId => {
+          if (peopleMap[parId] && !peopleMap[parId].children.includes(p.id)) {
+            peopleMap[parId].children.push(p.id);
+          }
+        });
+        p.children.forEach(cid => {
+          if (peopleMap[cid] && !peopleMap[cid].parents.includes(p.id)) {
+            peopleMap[cid].parents.push(p.id);
+          }
+        });
+
+        // Spouses bidirectional linking
+        p.spouses.forEach(spId => {
+          if (peopleMap[spId] && !peopleMap[spId].spouses.includes(p.id)) {
+            peopleMap[spId].spouses.push(p.id);
+          }
+        });
+
+        // Direct siblings bidirectional linking
+        p.siblings.forEach(sibId => {
+          if (peopleMap[sibId] && !peopleMap[sibId].siblings.includes(p.id)) {
+            peopleMap[sibId].siblings.push(p.id);
+          }
+        });
       });
 
-      // Spouses bidirectional linking
-      p.spouses.forEach(spId => {
-        if (peopleMap[spId] && !peopleMap[spId].spouses.includes(p.id)) {
-          peopleMap[spId].spouses.push(p.id);
-        }
-      });
-
-      // Direct siblings bidirectional linking
-      p.siblings.forEach(sibId => {
-        if (peopleMap[sibId] && !peopleMap[sibId].siblings.includes(p.id)) {
-          peopleMap[sibId].siblings.push(p.id);
-        }
-      });
-    });
-
-    // 3. Third pass: Automatic Sibling Inference from Shared Parents
-    const peopleArray = Object.values(peopleMap);
-    for (let i = 0; i < peopleArray.length; i++) {
-      for (let j = i + 1; j < peopleArray.length; j++) {
-        const p1 = peopleArray[i];
-        const p2 = peopleArray[j];
-        const sharedParents = p1.parents.filter(par => p2.parents.includes(par));
-        if (sharedParents.length > 0) {
-          if (!p1.siblings.includes(p2.id)) p1.siblings.push(p2.id);
-          if (!p2.siblings.includes(p1.id)) p2.siblings.push(p1.id);
+      // 3. Third pass: Automatic Sibling Inference from Shared Parents
+      const peopleArray = Object.values(peopleMap);
+      for (let i = 0; i < peopleArray.length; i++) {
+        for (let j = i + 1; j < peopleArray.length; j++) {
+          const p1 = peopleArray[i];
+          const p2 = peopleArray[j];
+          const sharedParents = p1.parents.filter(par => p2.parents.includes(par));
+          if (sharedParents.length > 0) {
+            if (!p1.siblings.includes(p2.id)) p1.siblings.push(p2.id);
+            if (!p2.siblings.includes(p1.id)) p2.siblings.push(p1.id);
+          }
         }
       }
-    }
 
-    // 4. Build Unions & Couple entities
-    const unionMap = new Map();
-    const processedCouples = new Set();
-    let unionCount = 0;
+      // 4. Build Unions & Couple entities
+      const unionMap = new Map();
+      const processedCouples = new Set();
+      let unionCount = 0;
 
-    Object.values(peopleMap).forEach(p => {
-      p.spouses.forEach(spId => {
-        const key = [p.id, spId].sort().join("___");
-        if (!processedCouples.has(key)) {
-          processedCouples.add(key);
-          const p1 = p.gender === "female" ? spId : p.id;
-          const p2 = p.gender === "female" ? p.id : spId;
+      Object.values(peopleMap).forEach(p => {
+        p.spouses.forEach(spId => {
+          if (!peopleMap[spId]) return;
+          const key = [p.id, spId].sort().join("___");
+          if (!processedCouples.has(key)) {
+            processedCouples.add(key);
+            const p1 = p.gender === "female" ? spId : p.id;
+            const p2 = p.gender === "female" ? p.id : spId;
 
-          const sharedChildren = (peopleMap[p.id]?.children || []).filter(c =>
-            (peopleMap[spId]?.children || []).includes(c) ||
-            (peopleMap[c]?.parents && peopleMap[c].parents.includes(p.id) && peopleMap[c].parents.includes(spId))
-          );
+            const sharedChildren = (peopleMap[p1]?.children || []).filter(c =>
+              (peopleMap[p2]?.children || []).includes(c) ||
+              (peopleMap[c]?.parents && peopleMap[c].parents.includes(p1) && peopleMap[c].parents.includes(p2))
+            );
 
+            const uId = `u_${key}`;
+            const color = LINEAGE_PALETTE[unionCount % LINEAGE_PALETTE.length];
+            unionCount++;
+
+            unionMap.set(uId, {
+              id: uId,
+              p1,
+              p2,
+              children: [...new Set(sharedChildren)],
+              collapsed: false,
+              color,
+            });
+          }
+        });
+
+        // Parents forming implicit couple
+        if (p.fathers.length > 0 && p.mothers.length > 0) {
+          const fid = p.fathers[0];
+          const mid = p.mothers[0];
+          const key = [fid, mid].sort().join("___");
           const uId = `u_${key}`;
-          const color = LINEAGE_PALETTE[unionCount % LINEAGE_PALETTE.length];
-          unionCount++;
+          if (!unionMap.has(uId)) {
+            const color = LINEAGE_PALETTE[unionCount % LINEAGE_PALETTE.length];
+            unionCount++;
+            unionMap.set(uId, {
+              id: uId,
+              p1: fid,
+              p2: mid,
+              children: [p.id],
+              collapsed: false,
+              color,
+            });
+          } else {
+            const u = unionMap.get(uId);
+            if (!u.children.includes(p.id)) u.children.push(p.id);
+          }
+        } else if (p.fathers.length > 0 || p.mothers.length > 0) {
+          // Single parent whose partner is excluded or missing from dataset
+          const singlePar = p.fathers[0] || p.mothers[0];
+          const uId = `u_${singlePar}`;
+          if (!unionMap.has(uId)) {
+            const color = LINEAGE_PALETTE[unionCount % LINEAGE_PALETTE.length];
+            unionCount++;
+            unionMap.set(uId, {
+              id: uId,
+              p1: singlePar,
+              p2: null,
+              children: [p.id],
+              collapsed: false,
+              color,
+            });
+          } else {
+            const u = unionMap.get(uId);
+            if (!u.children.includes(p.id)) u.children.push(p.id);
+          }
+        }
 
-          unionMap.set(uId, {
-            id: uId,
-            p1,
-            p2,
-            children: [...new Set(sharedChildren)],
-            collapsed: false,
-            color,
-          });
+        // Single parent with children
+        if (p.children.length > 0 && p.spouses.length === 0) {
+          const uId = `u_${p.id}`;
+          if (!unionMap.has(uId)) {
+            const color = LINEAGE_PALETTE[unionCount % LINEAGE_PALETTE.length];
+            unionCount++;
+            unionMap.set(uId, {
+              id: uId,
+              p1: p.id,
+              p2: null,
+              children: [...p.children],
+              collapsed: false,
+              color,
+            });
+          } else {
+            const u = unionMap.get(uId);
+            p.children.forEach(cid => {
+              if (!u.children.includes(cid)) u.children.push(cid);
+            });
+          }
         }
       });
-
-      // Parents forming implicit couple
-      if (p.fathers.length > 0 && p.mothers.length > 0) {
-        const fid = p.fathers[0];
-        const mid = p.mothers[0];
-        const key = [fid, mid].sort().join("___");
-        const uId = `u_${key}`;
-        if (!unionMap.has(uId)) {
-          const color = LINEAGE_PALETTE[unionCount % LINEAGE_PALETTE.length];
-          unionCount++;
-          unionMap.set(uId, {
-            id: uId,
-            p1: fid,
-            p2: mid,
-            children: [p.id],
-            collapsed: false,
-            color,
-          });
-        } else {
-          const u = unionMap.get(uId);
-          if (!u.children.includes(p.id)) u.children.push(p.id);
-        }
-      }
-
-      // Single parent with children
-      if (p.children.length > 0 && p.spouses.length === 0) {
-        const uId = `u_${p.id}`;
-        if (!unionMap.has(uId)) {
-          const color = LINEAGE_PALETTE[unionCount % LINEAGE_PALETTE.length];
-          unionCount++;
-          unionMap.set(uId, {
-            id: uId,
-            p1: p.id,
-            p2: null,
-            children: [...p.children],
-            collapsed: false,
-            color,
-          });
-        }
-      }
-    });
 
     this.people = peopleMap;
     this.unions = Array.from(unionMap.values());
@@ -2672,45 +3429,46 @@ class FamilyTreeView extends obsidian.ItemView {
     const rowH = this.plugin.settings.generationRowHeight || 200;
     const hGap = this.plugin.settings.horizontalSpacing || 48;
     const coupleGap = 38;
-    const familyGap = this.plugin.settings.familyBranchSpacing || 260;
+    const decentFamilyGap = (typeof this.plugin.settings.familyBranchSpacing === "number" &&
+      this.plugin.settings.familyBranchSpacing > 0 &&
+      this.plugin.settings.familyBranchSpacing < 200)
+      ? this.plugin.settings.familyBranchSpacing
+      : 80;
+    const familyGap = decentFamilyGap;
 
-    // 1. Generation Assignment (Depth Propagation)
+    // 1. Generation Assignment (Depth Propagation rooted strictly by descent)
     peopleList.forEach(p => { p.gen = 0; });
 
+    // Pass 1: Strict ancestral descent depth (DAG from roots to descendants)
     let changed = true;
-    let iterations = 0;
-    while (changed && iterations < 30) {
+    let depthIterations = 0;
+    while (changed && depthIterations < 50) {
       changed = false;
-      iterations++;
+      depthIterations++;
       peopleList.forEach(p => {
         const knownParents = p.parents.filter(id => this.people[id]);
         if (knownParents.length > 0) {
           const maxParGen = Math.max(...knownParents.map(id => this.people[id].gen));
-          if (p.gen < maxParGen + 1) {
+          if (p.gen !== maxParGen + 1) {
             p.gen = maxParGen + 1;
             changed = true;
           }
         }
-        // Spouses share identical generation
-        p.spouses.forEach(spId => {
-          const sp = this.people[spId];
-          if (sp && sp.gen !== p.gen) {
-            const maxG = Math.max(sp.gen, p.gen);
-            if (p.gen < maxG) { p.gen = maxG; changed = true; }
-            if (sp.gen < maxG) { sp.gen = maxG; changed = true; }
-          }
-        });
-        // Siblings share identical generation
-        p.siblings.forEach(sibId => {
-          const sib = this.people[sibId];
-          if (sib && sib.gen !== p.gen) {
-            const maxG = Math.max(sib.gen, p.gen);
-            if (p.gen < maxG) { p.gen = maxG; changed = true; }
-            if (sib.gen < maxG) { sib.gen = maxG; changed = true; }
-          }
-        });
       });
     }
+
+    // Pass 2: In-laws with NO known parents take their spouse's generation level
+    peopleList.forEach(p => {
+      const knownParents = p.parents.filter(id => this.people[id]);
+      if (knownParents.length === 0 && p.spouses.length > 0) {
+        const knownSpouseGens = p.spouses
+          .filter(id => this.people[id])
+          .map(id => this.people[id].gen);
+        if (knownSpouseGens.length > 0) {
+          p.gen = Math.min(...knownSpouseGens);
+        }
+      }
+    });
 
     // Dynamic Generation Heights (Adaptive vertical levels based on relationships)
     const genYMap = new Map();
@@ -2879,47 +3637,50 @@ class FamilyTreeView extends obsidian.ItemView {
     };
 
     // Subtree Width Calculator (Bottom-up bounding width)
-    const visitedWidth = new Set();
     const computeSubtreeWidth = (union) => {
-      if (!union || visitedWidth.has(union.id)) return cardW * 2 + coupleGap;
-      visitedWidth.add(union.id);
+      const visited = new Set();
+      const calcW = (u) => {
+        if (!u || visited.has(u.id)) return cardW * 2 + coupleGap;
+        visited.add(u.id);
 
-      const p1 = this.people[union.p1];
-      const p2 = union.p2 ? this.people[union.p2] : null;
-      const p1W = p1 ? (p1.cardW || cardW) : cardW;
-      const p2W = p2 ? (p2.cardW || cardW) : 0;
-      const unitW = p2 ? (p1W + p2W + coupleGap) : p1W;
+        const p1 = this.people[u.p1];
+        const p2 = u.p2 ? this.people[u.p2] : null;
+        const p1W = p1 ? (p1.cardW || cardW) : cardW;
+        const p2W = p2 ? (p2.cardW || cardW) : 0;
+        const unitW = p2 ? (p1W + p2W + coupleGap) : p1W;
 
-      const rawChildren = (union.children || [])
-        .map(cid => this.people[cid])
-        .filter(Boolean);
-      const validChildren = sortChildren(rawChildren, union);
+        const rawChildren = (u.children || [])
+          .map(cid => this.people[cid])
+          .filter(Boolean)
+          .filter(child => !placedPeople.has(child.id));
+        const validChildren = sortChildren(rawChildren, u);
 
-      if (validChildren.length === 0) {
-        return unitW;
-      }
-
-      let childrenTotalW = 0;
-      validChildren.forEach((child, idx) => {
-        // Check if child has a union
-        const childUnion = this.unions.find(cu => (cu.p1 === child.id || cu.p2 === child.id) && cu.id !== union.id);
-        let childW = child.cardW || cardW;
-        if (childUnion) {
-          const spouseId = childUnion.p1 === child.id ? childUnion.p2 : childUnion.p1;
-          const spouse = spouseId ? this.people[spouseId] : null;
-          const spouseHasOwnParents = spouse && spouse.parents.some(pid => this.people[pid]);
-          if (!spouseHasOwnParents) {
-            childW = computeSubtreeWidth(childUnion);
-          } else {
-            const spW = spouse ? (spouse.cardW || cardW) : cardW;
-            childW = (child.cardW || cardW) + spW + coupleGap;
-          }
+        if (validChildren.length === 0) {
+          return unitW;
         }
-        childrenTotalW += childW;
-        if (idx > 0) childrenTotalW += hGap;
-      });
 
-      return Math.max(unitW, childrenTotalW);
+        let childrenTotalW = 0;
+        validChildren.forEach((child, idx) => {
+          const childUnion = this.unions.find(cu => (cu.p1 === child.id || cu.p2 === child.id) && cu.id !== u.id);
+          let childW = child.cardW || cardW;
+          if (childUnion && !placedUnions.has(childUnion.id)) {
+            const spouseId = childUnion.p1 === child.id ? childUnion.p2 : childUnion.p1;
+            const spouse = spouseId ? this.people[spouseId] : null;
+            const spouseHasOwnParents = spouse && spouse.parents.some(pid => this.people[pid]);
+            if (!spouseHasOwnParents) {
+              childW = calcW(childUnion);
+            } else {
+              const spW = spouse ? (spouse.cardW || cardW) : cardW;
+              childW = (child.cardW || cardW) + spW + coupleGap;
+            }
+          }
+          childrenTotalW += childW;
+          if (idx > 0) childrenTotalW += hGap;
+        });
+
+        return Math.max(unitW, childrenTotalW);
+      };
+      return calcW(union);
     };
 
     // Subtree Placement (Top-down within bounding slices)
@@ -2934,24 +3695,48 @@ class FamilyTreeView extends obsidian.ItemView {
       const unionCenterX = leftX + availableW / 2;
 
       // Position parent card(s)
-      let branchUnionX;
       if (p1 && p2) {
-        const leftPartner = p1.gender === "female" ? p2 : p1;
-        const rightPartner = p1.gender === "female" ? p1 : p2;
+        let leftPartner = p1.gender === "female" ? p2 : p1;
+        let rightPartner = p1.gender === "female" ? p1 : p2;
+
+        // Smart partner orientation based on clans/lineage:
+        // Place partner from earlier clan on the left, later clan on the right
+        const clan1 = personClanMap.get(p1.id);
+        const clan2 = personClanMap.get(p2.id);
+        const c1Idx = orderedRootUnions.findIndex(ru => ru.id === clan1);
+        const c2Idx = orderedRootUnions.findIndex(ru => ru.id === clan2);
+
+        if (c1Idx !== -1 && c2Idx !== -1 && c1Idx !== c2Idx) {
+          if (c1Idx < c2Idx) {
+            leftPartner = p1;
+            rightPartner = p2;
+          } else {
+            leftPartner = p2;
+            rightPartner = p1;
+          }
+        }
+
         const lpW = leftPartner.cardW || cardW;
         const rpW = rightPartner.cardW || cardW;
+        const coupleW = lpW + rpW + coupleGap;
 
-        if (!placedPeople.has(leftPartner.id)) {
-          leftPartner.x = unionCenterX - (lpW + rpW + coupleGap) / 2;
+        if (!placedPeople.has(leftPartner.id) && !placedPeople.has(rightPartner.id)) {
+          leftPartner.x = unionCenterX - coupleW / 2;
           leftPartner.y = genYMap.get(leftPartner.gen) ?? (80 + leftPartner.gen * 120);
           placedPeople.add(leftPartner.id);
-        }
-        if (!placedPeople.has(rightPartner.id)) {
+
           rightPartner.x = leftPartner.x + lpW + coupleGap;
           rightPartner.y = genYMap.get(rightPartner.gen) ?? (80 + rightPartner.gen * 120);
           placedPeople.add(rightPartner.id);
+        } else if (placedPeople.has(leftPartner.id) && !placedPeople.has(rightPartner.id)) {
+          rightPartner.x = leftPartner.x + lpW + coupleGap;
+          rightPartner.y = genYMap.get(rightPartner.gen) ?? (80 + rightPartner.gen * 120);
+          placedPeople.add(rightPartner.id);
+        } else if (!placedPeople.has(leftPartner.id) && placedPeople.has(rightPartner.id)) {
+          leftPartner.x = rightPartner.x - lpW - coupleGap;
+          leftPartner.y = genYMap.get(leftPartner.gen) ?? (80 + leftPartner.gen * 120);
+          placedPeople.add(leftPartner.id);
         }
-        branchUnionX = leftPartner.x + lpW + coupleGap / 2;
       } else if (p1) {
         const p1W = p1.cardW || cardW;
         if (!placedPeople.has(p1.id)) {
@@ -2959,13 +3744,13 @@ class FamilyTreeView extends obsidian.ItemView {
           p1.y = genYMap.get(p1.gen) ?? (80 + p1.gen * 120);
           placedPeople.add(p1.id);
         }
-        branchUnionX = p1.x + p1W / 2;
       }
 
       // Position children
       const rawChildren = (union.children || [])
         .map(cid => this.people[cid])
-        .filter(Boolean);
+        .filter(Boolean)
+        .filter(child => !placedPeople.has(child.id));
       const validChildren = sortChildren(rawChildren, union);
 
       if (validChildren.length === 0) return;
@@ -2973,21 +3758,21 @@ class FamilyTreeView extends obsidian.ItemView {
       // Precalculate widths for each child's branch
       const childWidths = validChildren.map(child => {
         const childUnion = this.unions.find(cu => (cu.p1 === child.id || cu.p2 === child.id) && cu.id !== union.id);
-        if (childUnion) {
+        if (childUnion && !placedUnions.has(childUnion.id)) {
           const spouseId = childUnion.p1 === child.id ? childUnion.p2 : childUnion.p1;
           const spouse = spouseId ? this.people[spouseId] : null;
           const spouseHasOwnParents = spouse && spouse.parents.some(pid => this.people[pid]);
           if (!spouseHasOwnParents) {
             return computeSubtreeWidth(childUnion);
           } else {
-            return cardW * 2 + coupleGap;
+            return (child.cardW || cardW) + (spouse ? (spouse.cardW || cardW) : cardW) + coupleGap;
           }
         }
-        return cardW;
+        return (child.cardW || cardW);
       });
 
       const totalChildrenW = childWidths.reduce((a, b) => a + b, 0) + (validChildren.length - 1) * hGap;
-      let curChildX = (branchUnionX !== undefined ? branchUnionX : unionCenterX) - totalChildrenW / 2;
+      let curChildX = unionCenterX - totalChildrenW / 2;
 
       validChildren.forEach((child, idx) => {
         const cw = childWidths[idx];
@@ -3014,7 +3799,6 @@ class FamilyTreeView extends obsidian.ItemView {
     let colorIdx = 0;
 
     orderedRootUnions.forEach((ru, ruIdx) => {
-      visitedWidth.clear();
       const subtreeW = computeSubtreeWidth(ru);
       const lineageColor = LINEAGE_PALETTE[colorIdx % LINEAGE_PALETTE.length];
       colorIdx++;
@@ -3031,7 +3815,7 @@ class FamilyTreeView extends obsidian.ItemView {
 
       // Dynamic Clan Spacing:
       // If this clan intermarries with the next clan, keep them closely connected (54px)
-      // Otherwise, give a clean separation gap (78px) instead of a massive 260px void
+      // Otherwise, give a clean separation gap (78px) instead of a massive void
       const nextRu = orderedRootUnions[ruIdx + 1];
       const hasIntermarriage = nextRu && (
         (clanAffinity.get(ru.id)?.get(nextRu.id) || 0) > 0 ||
@@ -3295,6 +4079,8 @@ class FamilyTreeView extends obsidian.ItemView {
               });
             } else {
               const stemDropY = parentBottomY + 24;
+              const childDropX = childCenterX;
+
               allVerticalSegments.push({
                 x: unionX,
                 yTop: stemY1,
@@ -3304,15 +4090,15 @@ class FamilyTreeView extends obsidian.ItemView {
                 className: "ft-tree-line",
               });
               horizontalRenderQueue.push({
-                x1: Math.min(unionX, childCenterX),
-                x2: Math.max(unionX, childCenterX),
+                x1: Math.min(unionX, childDropX),
+                x2: Math.max(unionX, childDropX),
                 y: stemDropY,
                 strokeColor,
                 className: "ft-tree-line",
                 unionId: u.id,
               });
               allVerticalSegments.push({
-                x: childCenterX,
+                x: childDropX,
                 yTop: stemDropY,
                 yBottom: onlyChild.y,
                 unionId: u.id,
@@ -3343,35 +4129,40 @@ class FamilyTreeView extends obsidian.ItemView {
             });
 
             // 2. Child connection points (top center of each child card)
-            const childPoints = visibleChildren.map(c => ({
-              x: c.x + (c.cardW || cardW) / 2,
-              y: c.y,
-            }));
+            const childPoints = visibleChildren
+              .filter(c => c && Number.isFinite(c.x))
+              .map(c => ({
+                id: c.id,
+                x: c.x + (c.cardW || cardW) / 2,
+                y: c.y,
+              }));
 
-            const minChildX = Math.min(...childPoints.map(cp => cp.x), unionX);
-            const maxChildX = Math.max(...childPoints.map(cp => cp.x), unionX);
+            if (childPoints.length > 0) {
+              const minChildX = Math.min(...childPoints.map(cp => cp.x), unionX);
+              const maxChildX = Math.max(...childPoints.map(cp => cp.x), unionX);
 
-            // 3. Horizontal Bus Bar
-            horizontalRenderQueue.push({
-              x1: minChildX,
-              x2: maxChildX,
-              y: stemDropY,
-              strokeColor,
-              className: "ft-tree-line",
-              unionId: u.id,
-            });
-
-            // 4. Downward drop lines to each child card
-            childPoints.forEach(cp => {
-              allVerticalSegments.push({
-                x: cp.x,
-                yTop: Math.min(stemDropY, cp.y),
-                yBottom: Math.max(stemDropY, cp.y),
-                unionId: u.id,
+              // 3. Horizontal Bus Bar
+              horizontalRenderQueue.push({
+                x1: minChildX,
+                x2: maxChildX,
+                y: stemDropY,
                 strokeColor,
                 className: "ft-tree-line",
+                unionId: u.id,
               });
-            });
+
+              // 4. Downward drop lines to each child card
+              childPoints.forEach(cp => {
+                allVerticalSegments.push({
+                  x: cp.x,
+                  yTop: Math.min(stemDropY, cp.y),
+                  yBottom: Math.max(stemDropY, cp.y),
+                  unionId: u.id,
+                  strokeColor,
+                  className: "ft-tree-line",
+                });
+              });
+            }
           }
         }
       }
@@ -3410,7 +4201,9 @@ class FamilyTreeView extends obsidian.ItemView {
       allVerticalSegments.forEach(v => {
         if (v.unionId === h.unionId) return; // Same family lines don't need jumps
         if (v.x > startX + 2 && v.x < endX - 2) {
-          if (h.y >= v.yTop && h.y <= v.yBottom) {
+          const vyMin = Math.min(v.yTop, v.yBottom);
+          const vyMax = Math.max(v.yTop, v.yBottom);
+          if (h.y >= vyMin && h.y <= vyMax) {
             crossings.push(Math.round(v.x));
           }
         }
@@ -3636,17 +4429,32 @@ class FamilyTreeView extends obsidian.ItemView {
   }
 
   positionTooltip(e) {
-    const offset = 18;
-    const ttW = 370;
-    const ttH = 300;
-    let left = e.clientX + offset;
-    let top = e.clientY + offset;
+    const rect = this.contentEl.getBoundingClientRect();
+    const ttW = this.tooltip.offsetWidth || 360;
+    const ttH = this.tooltip.offsetHeight || 280;
 
-    if (left + ttW > window.innerWidth) left = Math.max(10, e.clientX - ttW - 5);
-    if (top + ttH > window.innerHeight) top = Math.max(10, e.clientY - ttH - 5);
+    const cursorX = e.clientX - rect.left;
+    const cursorY = e.clientY - rect.top;
 
-    this.tooltip.style.left = left + "px";
-    this.tooltip.style.top = top + "px";
+    // Make the box appear right below the cursor
+    let left = cursorX - 10;
+    let top = cursorY + 18;
+
+    // Keep completely inside container bounds so it never gets chopped
+    if (left + ttW > rect.width - 15) {
+      left = rect.width - ttW - 15;
+    }
+    if (left < 15) {
+      left = 15;
+    }
+
+    if (top + ttH > rect.height - 15) {
+      // Flip above cursor if it would overflow the bottom
+      top = Math.max(15, cursorY - ttH - 12);
+    }
+
+    this.tooltip.style.left = `${Math.round(left)}px`;
+    this.tooltip.style.top = `${Math.round(top)}px`;
   }
 
   hideTooltip() {
@@ -3845,6 +4653,9 @@ class RelationsSuiteSettingTab extends obsidian.PluginSettingTab {
       .setName("Custom Relation Pairs")
       .setDesc("Create custom forward ↔ inverse property rules (e.g. mentor ↔ student).")
       .addButton(b => b.setButtonText("+ Add Pair").setCta().onClick(async () => {
+        if (!Array.isArray(this.plugin.settings.relations)) {
+          this.plugin.settings.relations = [];
+        }
         this.plugin.settings.relations.unshift({ forward: "", inverse: "", enabled: true });
         await this.plugin.saveSettings();
         this.display();
@@ -3871,7 +4682,7 @@ class RelationsSuiteSettingTab extends obsidian.PluginSettingTab {
           this.display();
         });
 
-        const fwd = row.createEl("input", { type: "text", placeholder: "", value: rel.forward || "" });
+        const fwd = row.createEl("input", { type: "text", placeholder: "forward property", value: rel.forward || "" });
         fwd.addEventListener("input", async e => {
           rel.forward = e.target.value;
           await this.plugin.saveSettings();
@@ -3883,7 +4694,7 @@ class RelationsSuiteSettingTab extends obsidian.PluginSettingTab {
 
         row.createSpan({ cls: "srs-arrow", text: "↔" });
 
-        const inv = row.createEl("input", { type: "text", placeholder: "", value: rel.inverse || "" });
+        const inv = row.createEl("input", { type: "text", placeholder: "inverse property", value: rel.inverse || "" });
         inv.addEventListener("input", async e => {
           rel.inverse = e.target.value;
           await this.plugin.saveSettings();
@@ -3923,14 +4734,39 @@ class RelationsSuitePlugin extends obsidian.Plugin {
 
     // ── 1. Relation Sync Engine Setup ──
     this.writeQueue = new Map();
+    this.removeQueue = new Map();
     this.flushPending = false;
     this.writeGuard = new Set();
+    this.fileRelationsSnapshot = new Map();
+    this.tombstones = new Map();
+    this.recentlyCreatedNotes = new Map();
+
+    if (this.app.workspace.layoutReady) {
+      this.initRelationsSnapshot();
+    } else {
+      this.app.workspace.onLayoutReady(() => {
+        this.initRelationsSnapshot();
+      });
+    }
 
     this.registerEvent(
       this.app.metadataCache.on("changed", file => {
         if (file instanceof obsidian.TFile && file.extension === "md") {
+          if (this.writeGuard.has(file.path)) return;
           this.onNoteChanged(file);
-          this.onNoteCreated(file);
+        }
+      })
+    );
+
+    this.registerEvent(
+      this.app.vault.on("modify", file => {
+        if (file instanceof obsidian.TFile && file.extension === "md") {
+          if (this.writeGuard.has(file.path)) return;
+          setTimeout(() => {
+            if (!this.writeGuard.has(file.path)) {
+              this.onNoteChanged(file);
+            }
+          }, 200);
         }
       })
     );
@@ -3938,9 +4774,12 @@ class RelationsSuitePlugin extends obsidian.Plugin {
     this.registerEvent(
       this.app.vault.on("create", file => {
         if (file instanceof obsidian.TFile && file.extension === "md") {
+          if (this.recentlyCreatedNotes) {
+            this.recentlyCreatedNotes.set(file.path, Date.now() + 10000);
+          }
           setTimeout(() => this.onNoteCreated(file), 50);
-          setTimeout(() => this.onNoteCreated(file), 300);
-          setTimeout(() => this.onNoteCreated(file), 800);
+          setTimeout(() => this.onNoteCreated(file), 250);
+          setTimeout(() => this.onNoteCreated(file), 600);
         }
       })
     );
@@ -3948,8 +4787,11 @@ class RelationsSuitePlugin extends obsidian.Plugin {
     this.registerEvent(
       this.app.workspace.on("file-open", file => {
         if (file instanceof obsidian.TFile && file.extension === "md") {
-          setTimeout(() => this.onNoteCreated(file), 50);
-          setTimeout(() => this.onNoteCreated(file), 300);
+          const cache = this.app.metadataCache.getFileCache(file);
+          if (cache) {
+            const s = this.extractRelationsSnapshot(file, cache);
+            if (s) this.fileRelationsSnapshot.set(file.path, s);
+          }
         }
       })
     );
@@ -3958,14 +4800,6 @@ class RelationsSuitePlugin extends obsidian.Plugin {
       this.app.vault.on("rename", (file, oldPath) => {
         if (file instanceof obsidian.TFile && file.extension === "md") {
           this.onNoteRenamed(file, oldPath);
-        }
-      })
-    );
-
-    this.registerEvent(
-      this.app.vault.on("modify", file => {
-        if (file instanceof obsidian.TFile && file.extension === "md") {
-          setTimeout(() => this.onNoteCreated(file), 100);
         }
       })
     );
@@ -4070,7 +4904,9 @@ class RelationsSuitePlugin extends obsidian.Plugin {
       "includedFolders", "maleValues", "femaleValues", "rpg_excludedProperties",
       "excludedProperties", "ft_excludeValues", "excludeValues", "ft_selectedCardProps",
       "selectedCardProps", "fatherProps", "motherProps", "husbandProps", "wifeProps",
-      "sonProps", "daughterProps", "brotherProps", "sisterProps", "genderProps"
+      "sonProps", "daughterProps", "brotherProps", "sisterProps", "genderProps",
+      "fatherProperty", "motherProperty", "husbandProperty", "wifeProperty",
+      "sonProperty", "daughterProperty", "brotherProperty", "sisterProperty"
     ];
     for (const key of arrayKeys) {
       if (typeof this.settings[key] === "string") {
@@ -4083,24 +4919,126 @@ class RelationsSuitePlugin extends obsidian.Plugin {
 
   async saveSettings() {
     await this.saveData(this.settings);
+    this.initRelationsSnapshot();
   }
 
 /* ─── folder filter ─── */
 
   isIncluded(file) {
+    if (!file || !(file instanceof obsidian.TFile) || file.extension !== "md") return false;
+
+    const normPath = file.path.replace(/\\/g, "/").toLowerCase();
+    const bLo = file.basename.toLowerCase().trim();
+
+    // 1. Excluded values and properties filter from settings
+    const exclVals = [
+      ...(this.settings.excludeValues || []),
+      ...(this.settings.ft_excludeValues || [])
+    ].map(v => bare(String(v || "")).toLowerCase().trim()).filter(Boolean);
+    if (exclVals.includes(bLo)) return false;
+
+    const cache = this.app.metadataCache.getFileCache(file);
+    if (cache && cache.frontmatter) {
+      const fm = cache.frontmatter;
+      const exclProp = (this.settings.ft_excludePropertyName || this.settings.excludePropertyName || "").toLowerCase().trim();
+      const exclPropVal = (this.settings.ft_excludePropertyValue || this.settings.excludePropertyValue || "").toLowerCase().trim();
+      if (exclProp && exclProp !== "(none)") {
+        const realEp = Object.keys(fm).find(x => x.toLowerCase() === exclProp);
+        if (realEp && fm[realEp] != null) {
+          const rawVal = fm[realEp];
+          const arr = Array.isArray(rawVal) ? rawVal : [rawVal];
+          const vals = arr.map(x => bare(typeof x === "object" ? (x.link || "") : String(x || "")).toLowerCase().trim()).filter(Boolean);
+          if (vals.some(v => (exclPropVal && v === exclPropVal) || exclVals.includes(v))) {
+            return false;
+          }
+        }
+      }
+    }
+
+    const customKeys = (this.settings.relations || [])
+      .filter(r => r.enabled !== false && r.forward && r.inverse)
+      .flatMap(r => [r.forward.toLowerCase().trim(), r.inverse.toLowerCase().trim()]);
+
+    const userFamilyKeys = [
+      ...this.getPropList(this.settings.fatherProperty),
+      ...this.getPropList(this.settings.motherProperty),
+      ...this.getPropList(this.settings.husbandProperty),
+      ...this.getPropList(this.settings.wifeProperty),
+      ...this.getPropList(this.settings.sonProperty),
+      ...this.getPropList(this.settings.daughterProperty),
+      ...this.getPropList(this.settings.brotherProperty),
+      ...this.getPropList(this.settings.sisterProperty),
+      ...this.getPropList(this.settings.fatherProps),
+      ...this.getPropList(this.settings.motherProps),
+      ...this.getPropList(this.settings.husbandProps),
+      ...this.getPropList(this.settings.wifeProps),
+      ...this.getPropList(this.settings.sonProps),
+      ...this.getPropList(this.settings.daughterProps),
+      ...this.getPropList(this.settings.brotherProps),
+      ...this.getPropList(this.settings.sisterProps),
+    ].map(k => k.toLowerCase().trim()).filter(Boolean);
+    const defaultRelKeys = ["father", "mother", "husband", "wife", "son", "daughter", "brother", "sister"];
+    const allConfiguredRelationKeys = new Set([...userFamilyKeys, ...customKeys, ...defaultRelKeys]);
+
+    // 2. Folder filter: If includedFolders is configured, notes inside those folders are included
     const folders = (this.settings.includedFolders || [])
-      .map(f => f.trim().replace(/^\/|\/$/g, "")).filter(Boolean);
+      .map(f => f.trim().replace(/^\/|\/$/g, "").replace(/\\/g, "/").toLowerCase()).filter(Boolean);
+    if (folders.some(f => normPath === f || normPath.startsWith(f + "/"))) return true;
+
+    // 3. Also include any note outside includedFolders if it defines relation properties
+    if (cache && cache.frontmatter) {
+      const fm = cache.frontmatter;
+      const hasRelProps = Object.keys(fm).some(k => {
+        const lk = k.toLowerCase().trim();
+        return allConfiguredRelationKeys.has(lk);
+      });
+      if (hasRelProps) return true;
+    }
+
+    // 4. Also include if this note is referenced as a relation by any snapshot in the vault
+    if (this.fileRelationsSnapshot) {
+      for (const [_, snap] of this.fileRelationsSnapshot) {
+        if ((snap.fathers || []).includes(bLo) || (snap.mothers || []).includes(bLo) ||
+            (snap.sons || []).includes(bLo) || (snap.daughters || []).includes(bLo) ||
+            (snap.brothers || []).includes(bLo) || (snap.sisters || []).includes(bLo) ||
+            (snap.husbands || []).includes(bLo) || (snap.wives || []).includes(bLo)) {
+          return true;
+        }
+        for (const c of (snap.custom || [])) {
+          if ((c.forwardTargets || []).includes(bLo) || (c.inverseTargets || []).includes(bLo)) {
+            return true;
+          }
+        }
+      }
+    }
+
+    // 5. Direct vault check: if any note in the vault references this note in family or custom properties
+    for (const f of this.app.vault.getMarkdownFiles()) {
+      if (f.path === file.path) continue;
+      if (exclVals.includes(f.basename.toLowerCase().trim())) continue;
+      const fc = this.app.metadataCache.getFileCache(f);
+      if (!fc || !fc.frontmatter) continue;
+      for (const k of Object.keys(fc.frontmatter)) {
+        const lk = k.toLowerCase().trim();
+        if (allConfiguredRelationKeys.has(lk)) {
+          if (linksUnderProp(fc, k).some(x => bare(x).toLowerCase() === bLo)) return true;
+        }
+      }
+    }
+
     if (!folders.length) return true;
-    return folders.some(f => file.path === f || file.path.startsWith(f + "/"));
+    return false;
   }
 
   /* ─── file resolver ─── */
 
   resolve(name, fromPath = "") {
     if (!name) return null;
-    const f = this.app.metadataCache.getFirstLinkpathDest(name, fromPath);
+    const clean = bare(name);
+    if (!clean) return null;
+    const f = this.app.metadataCache.getFirstLinkpathDest(clean, fromPath);
     if (f instanceof obsidian.TFile) return f;
-    const lo = bare(name).toLowerCase();
+    const lo = clean.toLowerCase();
     return this.app.vault.getMarkdownFiles().find(x => x.basename.toLowerCase() === lo) || null;
   }
 
@@ -4108,34 +5046,439 @@ class RelationsSuitePlugin extends obsidian.Plugin {
 
   getGender(cache) {
     if (!cache || !cache.frontmatter) return "unknown";
-    const gKey = (this.settings.genderProperty || "").trim().toLowerCase();
-    if (!gKey) return "unknown";
+    const propCandidates = [
+      ...this.getPropList(this.settings.genderProperty),
+      ...this.getPropList(this.settings.genderProps),
+      "gender", "sex"
+    ].map(s => s.toLowerCase());
 
-    const realKey = Object.keys(cache.frontmatter).find(k => k.toLowerCase() === gKey);
+    let realKey = null;
+    for (const cand of propCandidates) {
+      realKey = Object.keys(cache.frontmatter).find(k => k.toLowerCase() === cand);
+      if (realKey) break;
+    }
     if (!realKey) return "unknown";
 
-    const val = String(cache.frontmatter[realKey] || "").trim().toLowerCase();
-    if (!val) return "unknown";
+    const rawVal = cache.frontmatter[realKey];
+    const rawItems = Array.isArray(rawVal) ? rawVal : [rawVal];
 
-    const toList = v => Array.isArray(v) ? v.map(s => String(s).trim().toLowerCase()).filter(Boolean) : (typeof v === "string" ? v.split(",").map(s => s.trim().toLowerCase()).filter(Boolean) : []);
-    const maleList = toList(this.settings.maleValues)
-      ;
-    const femaleList = toList(this.settings.femaleValues);
+    const toList = v => {
+      if (Array.isArray(v)) return v.map(s => String(s || "").trim().toLowerCase()).filter(Boolean);
+      if (typeof v === "string") return v.split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
+      return [];
+    };
+    let maleList = toList(this.settings.maleValues);
+    let femaleList = toList(this.settings.femaleValues);
+    if (!maleList.length) maleList = ["male", "m", "man", "boy"];
+    if (!femaleList.length) femaleList = ["female", "f", "woman", "girl"];
 
-    if (maleList.includes(val)) return "male";
-    if (femaleList.includes(val)) return "female";
+    for (const item of rawItems) {
+      if (item === undefined || item === null) continue;
+      const clean = bare(String(item)).trim().toLowerCase();
+      if (!clean) continue;
+      // Exact letter-to-letter equality matching
+      if (femaleList.includes(clean)) return "female";
+      if (maleList.includes(clean)) return "male";
+    }
     return "unknown";
   }
 
-  /* ══ WRITE QUEUE (Batched Write Engine) ═════════════════════════ */
+  getFileGender(fileOrName, fromPath = "") {
+    if (!fileOrName) return "unknown";
+    let file = fileOrName;
+    let name = "";
+    if (typeof fileOrName === "string") {
+      name = bare(fileOrName).toLowerCase();
+      file = this.resolve(fileOrName, fromPath);
+    } else if (fileOrName instanceof obsidian.TFile) {
+      name = fileOrName.basename.toLowerCase();
+    }
+
+    const S = this.settings;
+    const getPropListUnified = (k1, k2, fallbacks = []) => {
+      const list = [...this.getPropList(S[k1]), ...this.getPropList(S[k2])];
+      if (list.length > 0) return [...new Set(list)];
+      return fallbacks;
+    };
+    const fatKeys  = getPropListUnified("fatherProperty", "fatherProps", ["father"]);
+    const motKeys  = getPropListUnified("motherProperty", "motherProps", ["mother"]);
+    const husbKeys = getPropListUnified("husbandProperty", "husbandProps", ["husband"]);
+    const wifeKeys = getPropListUnified("wifeProperty", "wifeProps", ["wife"]);
+    const sonKeys  = getPropListUnified("sonProperty", "sonProps", ["son"]);
+    const dauKeys  = getPropListUnified("daughterProperty", "daughterProps", ["daughter"]);
+    const broKeys  = getPropListUnified("brotherProperty", "brotherProps", ["brother"]);
+    const sisKeys  = getPropListUnified("sisterProperty", "sisterProps", ["sister"]);
+
+    if (file && file instanceof obsidian.TFile) {
+      const cache = this.app.metadataCache.getFileCache(file);
+      const directGender = this.getGender(cache);
+      if (directGender !== "unknown") return directGender;
+
+      // Infer from spouse properties on the note itself
+      if (cache && cache.frontmatter) {
+        const fm = cache.frontmatter;
+        const hasWife = Object.keys(fm).some(k => wifeKeys.some(wk => wk.toLowerCase() === k.toLowerCase()) && linksUnderProp(cache, k).length > 0);
+        const hasHusb = Object.keys(fm).some(k => husbKeys.some(hk => hk.toLowerCase() === k.toLowerCase()) && linksUnderProp(cache, k).length > 0);
+        if (hasWife && !hasHusb) return "male";
+        if (hasHusb && !hasWife) return "female";
+      }
+    }
+
+    // Infer from relations across the vault in snapshot
+    if (name && this.fileRelationsSnapshot) {
+      for (const [_, snap] of this.fileRelationsSnapshot) {
+        if ((snap.sons || []).includes(name) || (snap.brothers || []).includes(name) || (snap.fathers || []).includes(name) || (snap.husbands || []).includes(name)) {
+          return "male";
+        }
+        if ((snap.daughters || []).includes(name) || (snap.sisters || []).includes(name) || (snap.mothers || []).includes(name) || (snap.wives || []).includes(name)) {
+          return "female";
+        }
+      }
+    }
+
+    // Direct vault cache scan fallback across all gender-specific relationship properties
+    if (name) {
+      const maleKeys = [...sonKeys, ...broKeys, ...fatKeys, ...husbKeys];
+      const femaleKeys = [...dauKeys, ...sisKeys, ...motKeys, ...wifeKeys];
+
+      for (const f of this.app.vault.getMarkdownFiles()) {
+        const c = this.app.metadataCache.getFileCache(f);
+        if (!c || !c.frontmatter) continue;
+        for (const k of maleKeys) {
+          if (linksUnderProp(c, k).some(x => bare(x).toLowerCase() === name)) return "male";
+        }
+        for (const k of femaleKeys) {
+          if (linksUnderProp(c, k).some(x => bare(x).toLowerCase() === name)) return "female";
+        }
+      }
+    }
+
+    return "unknown";
+  }
+
+  /* ══ SNAPSHOT & REMOVAL ENGINE (Bi-Directional Unlinking) ═════════════════════════ */
+
+  getPropList(prop) {
+    if (Array.isArray(prop)) return prop.map(s => String(s || "").trim()).filter(Boolean);
+    if (typeof prop === "string") return prop.split(",").map(s => s.trim()).filter(Boolean);
+    return [];
+  }
+
+  getPrimaryProp(prop) {
+    const list = this.getPropList(prop);
+    return list[0] || "";
+  }
+
+  extractRelationsSnapshot(file, cache) {
+    if (!cache || !cache.frontmatter) return null;
+    const S = this.settings;
+
+    const getPropKeys = (k1, k2, fallbackNames = []) => {
+      const list = [...this.getPropList(S[k1]), ...this.getPropList(S[k2])];
+      if (list.length > 0) {
+        return new Set(list.map(s => s.toLowerCase().trim()).filter(Boolean));
+      }
+      return new Set((fallbackNames || []).map(s => s.toLowerCase().trim()).filter(Boolean));
+    };
+
+    const fatKeys  = getPropKeys("fatherProperty", "fatherProps", ["father"]);
+    const motKeys  = getPropKeys("motherProperty", "motherProps", ["mother"]);
+    const husbKeys = getPropKeys("husbandProperty", "husbandProps", ["husband"]);
+    const wifeKeys = getPropKeys("wifeProperty", "wifeProps", ["wife"]);
+    const sonKeys  = getPropKeys("sonProperty", "sonProps", ["son"]);
+    const dauKeys  = getPropKeys("daughterProperty", "daughterProps", ["daughter"]);
+    const broKeys  = getPropKeys("brotherProperty", "brotherProps", ["brother"]);
+    const sisKeys  = getPropKeys("sisterProperty", "sisterProps", ["sister"]);
+
+    const getNamesForKeys = (keys) => {
+      const names = new Set();
+      for (const k of keys) {
+        for (const n of linksUnderProp(cache, k)) {
+          const b = bare(n).toLowerCase();
+          if (b) names.add(b);
+        }
+      }
+      return [...names];
+    };
+
+    const custom = [];
+    for (const rel of (S.relations || [])) {
+      if (rel.enabled === false || !rel.forward || !rel.inverse) continue;
+      const fwd = rel.forward.trim();
+      const inv = rel.inverse.trim();
+      if (!fwd || !inv) continue;
+      custom.push({
+        forward: fwd,
+        inverse: inv,
+        forwardTargets: linksUnderProp(cache, fwd).map(n => bare(n).toLowerCase()).filter(Boolean),
+        inverseTargets: linksUnderProp(cache, inv).map(n => bare(n).toLowerCase()).filter(Boolean)
+      });
+    }
+
+    return {
+      fathers: getNamesForKeys(fatKeys),
+      mothers: getNamesForKeys(motKeys),
+      husbands: getNamesForKeys(husbKeys),
+      wives: getNamesForKeys(wifeKeys),
+      sons: getNamesForKeys(sonKeys),
+      daughters: getNamesForKeys(dauKeys),
+      brothers: getNamesForKeys(broKeys),
+      sisters: getNamesForKeys(sisKeys),
+      custom
+    };
+  }
+
+  initRelationsSnapshot() {
+    this.fileRelationsSnapshot.clear();
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (!this.isIncluded(file)) continue;
+      const cache = this.app.metadataCache.getFileCache(file);
+      if (cache) {
+        const snap = this.extractRelationsSnapshot(file, cache);
+        if (snap) this.fileRelationsSnapshot.set(file.path, snap);
+      }
+    }
+  }
+
+  shareOtherParent(childA, childB, fromPath, excludedParentName) {
+    const fileA = this.resolve(childA, fromPath);
+    const fileB = this.resolve(childB, fromPath);
+    if (!fileA || !fileB) return false;
+
+    const snapA = this.fileRelationsSnapshot.get(fileA.path) || (this.extractRelationsSnapshot(fileA, this.app.metadataCache.getFileCache(fileA)) || { fathers: [], mothers: [] });
+    const snapB = this.fileRelationsSnapshot.get(fileB.path) || (this.extractRelationsSnapshot(fileB, this.app.metadataCache.getFileCache(fileB)) || { fathers: [], mothers: [] });
+
+    const ex = bare(excludedParentName).toLowerCase();
+    const parentsA = new Set([...(snapA.fathers || []), ...(snapA.mothers || [])].filter(p => p !== ex));
+    const parentsB = new Set([...(snapB.fathers || []), ...(snapB.mothers || [])].filter(p => p !== ex));
+
+    for (const p of parentsA) {
+      if (parentsB.has(p)) return true;
+    }
+    return false;
+  }
+
+  hasSharedChildrenRemaining(parentAName, parentBName, excludedChildName, fromPath = "") {
+    const pAFile = this.resolve(parentAName, fromPath);
+    const pBFile = this.resolve(parentBName, fromPath);
+    const pAName = (pAFile ? pAFile.basename : bare(parentAName)).toLowerCase();
+    const pBName = (pBFile ? pBFile.basename : bare(parentBName)).toLowerCase();
+    const exName = bare(excludedChildName).toLowerCase();
+
+    // 1. Check all child files in snapshot: any child note listing both pA and pB as parents
+    for (const [path, snap] of this.fileRelationsSnapshot) {
+      const childFile = this.app.vault.getAbstractFileByPath(path);
+      if (!childFile || !(childFile instanceof obsidian.TFile)) continue;
+      if (childFile.basename.toLowerCase() === exName) continue;
+
+      const snapParents = [...(snap.fathers || []), ...(snap.mothers || [])].map(n => bare(n).toLowerCase());
+      if (snapParents.includes(pAName) && snapParents.includes(pBName)) {
+        return true;
+      }
+    }
+
+    // 2. Also check parent notes directly: children listed on parentA vs children listed on parentB
+    if (pAFile && pBFile) {
+      const snapA = this.fileRelationsSnapshot.get(pAFile.path) || this.extractRelationsSnapshot(pAFile, this.app.metadataCache.getFileCache(pAFile));
+      const snapB = this.fileRelationsSnapshot.get(pBFile.path) || this.extractRelationsSnapshot(pBFile, this.app.metadataCache.getFileCache(pBFile));
+      if (snapA && snapB) {
+        const childrenA = new Set([...(snapA.sons || []), ...(snapA.daughters || [])].map(n => bare(n).toLowerCase()).filter(n => n !== exName));
+        const childrenB = [...(snapB.sons || []), ...(snapB.daughters || [])].map(n => bare(n).toLowerCase()).filter(n => n !== exName);
+        for (const cb of childrenB) {
+          if (childrenA.has(cb)) return true;
+        }
+      }
+    }
+
+    return false;
+  }
+
+  /* ══ WRITE & REMOVE QUEUE (Batched Dual-Direction Engine) ═════════════════════════ */
+
+  addTombstone(nameA, nameB, durationMs = 2000) {
+    if (!nameA || !nameB) return;
+    const a = bare(nameA).toLowerCase();
+    const b = bare(nameB).toLowerCase();
+    if (!a || !b) return;
+    const expiresAt = Date.now() + durationMs;
+    this.tombstones.set(`${a}::${b}`, expiresAt);
+    this.tombstones.set(`${b}::${a}`, expiresAt);
+  }
+
+  removeTombstone(nameA, nameB) {
+    if (!nameA || !nameB) return;
+    const a = bare(nameA).toLowerCase();
+    const b = bare(nameB).toLowerCase();
+    this.tombstones.delete(`${a}::${b}`);
+    this.tombstones.delete(`${b}::${a}`);
+  }
+
+  clearTombstonesFor(name) {
+    if (!name || !this.tombstones) return;
+    const clean = bare(name).toLowerCase();
+    for (const key of [...this.tombstones.keys()]) {
+      if (key.startsWith(clean + "::") || key.endsWith("::" + clean)) {
+        this.tombstones.delete(key);
+      }
+    }
+  }
+
+  isRecentlyCreated(path) {
+    if (!path || !this.recentlyCreatedNotes) return false;
+    const exp = this.recentlyCreatedNotes.get(path);
+    if (!exp) return false;
+    if (Date.now() > exp) {
+      this.recentlyCreatedNotes.delete(path);
+      return false;
+    }
+    return true;
+  }
+
+  isTombstoned(nameA, nameB) {
+    if (!nameA || !nameB) return false;
+    const a = bare(nameA).toLowerCase();
+    const b = bare(nameB).toLowerCase();
+    const key = `${a}::${b}`;
+    const exp = this.tombstones.get(key);
+    if (!exp) return false;
+    if (Date.now() > exp) {
+      this.tombstones.delete(key);
+      return false;
+    }
+    return true;
+  }
 
   enqueue(targetFile, propKey, sourceBasename) {
     if (!targetFile || !(targetFile instanceof obsidian.TFile)) return;
     if (!propKey || !sourceBasename) return;
-    if (this.writeGuard.has(targetFile.path)) return;
 
     const name = bare(sourceBasename);
     if (!name) return;
+
+    // Never link a note to itself!
+    if (targetFile.basename.toLowerCase() === name.toLowerCase()) return;
+
+    // Ghost / Loop Prevention: Never add back a recently deleted relationship!
+    if (this.isTombstoned(targetFile.basename, name)) return;
+
+    // Never add back a link that is queued for removal under this property on this file
+    const remFm = this.removeQueue.get(targetFile.path);
+    if (remFm) {
+      for (const [remKey, remSet] of remFm) {
+        if (remKey.toLowerCase() === propKey.toLowerCase() && remSet.has(name.toLowerCase())) return;
+      }
+    }
+
+    // Strict Gender Integrity Guard:
+    // If the person being linked (name) has an explicit gender, ensure propKey strictly matches that gender!
+    const S = this.settings;
+    const getPropListUnified = (k1, k2, fallbacks = []) => {
+      const list = [...this.getPropList(S[k1]), ...this.getPropList(S[k2])];
+      if (list.length > 0) return [...new Set(list)];
+      return fallbacks;
+    };
+    const fatKeys  = getPropListUnified("fatherProperty", "fatherProps", ["father"]);
+    const motKeys  = getPropListUnified("motherProperty", "motherProps", ["mother"]);
+    const husbKeys = getPropListUnified("husbandProperty", "husbandProps", ["husband"]);
+    const wifeKeys = getPropListUnified("wifeProperty", "wifeProps", ["wife"]);
+    const sonKeys  = getPropListUnified("sonProperty", "sonProps", ["son"]);
+    const dauKeys  = getPropListUnified("daughterProperty", "daughterProps", ["daughter"]);
+    const broKeys  = getPropListUnified("brotherProperty", "brotherProps", ["brother"]);
+    const sisKeys  = getPropListUnified("sisterProperty", "sisterProps", ["sister"]);
+
+    const fatKey = fatKeys[0] || "";
+    const motKey = motKeys[0] || "";
+    const husbKey = husbKeys[0] || "";
+    const wifeKey = wifeKeys[0] || "";
+    const sonKey = sonKeys[0] || "";
+    const dauKey = dauKeys[0] || "";
+    const broKey = broKeys[0] || "";
+    const sisKey = sisKeys[0] || "";
+
+    const personGender = this.getFileGender(name, targetFile.path);
+    if (personGender === "female") {
+      if (fatKeys.some(k => k.toLowerCase() === propKey.toLowerCase())) {
+        propKey = motKey || propKey;
+      } else if (husbKeys.some(k => k.toLowerCase() === propKey.toLowerCase())) {
+        propKey = wifeKey || propKey;
+      } else if (sonKeys.some(k => k.toLowerCase() === propKey.toLowerCase())) {
+        propKey = dauKey || propKey;
+      } else if (broKeys.some(k => k.toLowerCase() === propKey.toLowerCase())) {
+        propKey = sisKey || propKey;
+      }
+    } else if (personGender === "male") {
+      if (motKeys.some(k => k.toLowerCase() === propKey.toLowerCase())) {
+        propKey = fatKey || propKey;
+      } else if (wifeKeys.some(k => k.toLowerCase() === propKey.toLowerCase())) {
+        propKey = husbKey || propKey;
+      } else if (dauKeys.some(k => k.toLowerCase() === propKey.toLowerCase())) {
+        propKey = sonKey || propKey;
+      } else if (sisKeys.some(k => k.toLowerCase() === propKey.toLowerCase())) {
+        propKey = broKey || propKey;
+      }
+    }
+
+    // Match propKey to existing frontmatter key if targetFile already defines it
+    const cache = this.app.metadataCache.getFileCache(targetFile);
+    if (cache && cache.frontmatter) {
+      const matchKeyInGroup = (keys) => {
+        if (keys.some(k => k.toLowerCase() === propKey.toLowerCase())) {
+          const found = Object.keys(cache.frontmatter).find(k => keys.some(gk => gk.toLowerCase() === k.toLowerCase()));
+          if (found) propKey = found;
+        }
+      };
+      matchKeyInGroup(fatKeys);
+      matchKeyInGroup(motKeys);
+      matchKeyInGroup(husbKeys);
+      matchKeyInGroup(wifeKeys);
+      matchKeyInGroup(sonKeys);
+      matchKeyInGroup(dauKeys);
+      matchKeyInGroup(broKeys);
+      matchKeyInGroup(sisKeys);
+    }
+
+    // Opposing Gender Role Mutual Exclusivity Guard:
+    // A person cannot be in both opposing roles on the same note!
+    // When adding a role that conflicts with an opposing role, enqueue removal of the outdated opposing role.
+    const existingQueue = this.writeQueue.get(targetFile.path);
+    const nameLo = name.toLowerCase();
+
+    let opposingKeys = null;
+    const pLoKey = propKey.toLowerCase();
+    if (fatKeys.some(k => k.toLowerCase() === pLoKey)) opposingKeys = motKeys;
+    else if (motKeys.some(k => k.toLowerCase() === pLoKey)) opposingKeys = fatKeys;
+    else if (husbKeys.some(k => k.toLowerCase() === pLoKey)) opposingKeys = wifeKeys;
+    else if (wifeKeys.some(k => k.toLowerCase() === pLoKey)) opposingKeys = husbKeys;
+    else if (broKeys.some(k => k.toLowerCase() === pLoKey)) opposingKeys = sisKeys;
+    else if (sisKeys.some(k => k.toLowerCase() === pLoKey)) opposingKeys = broKeys;
+    else if (sonKeys.some(k => k.toLowerCase() === pLoKey)) opposingKeys = dauKeys;
+    else if (dauKeys.some(k => k.toLowerCase() === pLoKey)) opposingKeys = sonKeys;
+
+    if (opposingKeys && opposingKeys.length > 0) {
+      if (existingQueue) {
+        for (const [qKey, qSet] of existingQueue) {
+          if (opposingKeys.some(k => k.toLowerCase() === qKey.toLowerCase())) {
+            for (const item of [...qSet]) {
+              if (bare(item).toLowerCase() === nameLo) {
+                qSet.delete(item);
+              }
+            }
+          }
+        }
+      }
+      if (cache && cache.frontmatter) {
+        for (const oppKey of opposingKeys) {
+          if (linksUnderProp(cache, oppKey).some(x => bare(x).toLowerCase() === nameLo)) {
+            if (!this.removeQueue.has(targetFile.path))
+              this.removeQueue.set(targetFile.path, new Map());
+            const fmRem = this.removeQueue.get(targetFile.path);
+            if (!fmRem.has(oppKey)) fmRem.set(oppKey, new Set());
+            fmRem.get(oppKey).add(nameLo);
+            this.removeTombstone(targetFile.basename, name);
+          }
+        }
+      }
+    }
 
     if (!this.writeQueue.has(targetFile.path))
       this.writeQueue.set(targetFile.path, new Map());
@@ -4149,76 +5492,713 @@ class RelationsSuitePlugin extends obsidian.Plugin {
     }
   }
 
+  enqueueRemoval(targetFile, propKey, sourceBasename) {
+    if (!targetFile || !(targetFile instanceof obsidian.TFile)) return;
+    if (!propKey || !sourceBasename) return;
+
+    const name = bare(sourceBasename);
+    if (!name) return;
+
+    // Add tombstone immediately to prevent any re-addition
+    this.addTombstone(targetFile.basename, name);
+
+    if (!this.removeQueue.has(targetFile.path))
+      this.removeQueue.set(targetFile.path, new Map());
+    const fm = this.removeQueue.get(targetFile.path);
+    if (!fm.has(propKey)) fm.set(propKey, new Set());
+    fm.get(propKey).add(name.toLowerCase());
+
+    // Also strip from writeQueue if it was pending addition
+    const writeFm = this.writeQueue.get(targetFile.path);
+    if (writeFm) {
+      for (const [_, namesSet] of writeFm) {
+        for (const queued of [...namesSet]) {
+          if (bare(queued).toLowerCase() === name.toLowerCase()) {
+            namesSet.delete(queued);
+          }
+        }
+      }
+    }
+
+    if (!this.flushPending) {
+      this.flushPending = true;
+      Promise.resolve().then(() => this.flush());
+    }
+  }
+
   async flush() {
     this.flushPending = false;
-    const snapshot = new Map(this.writeQueue);
+    const writeSnapshot = new Map(this.writeQueue);
     this.writeQueue.clear();
+    const removeSnapshot = new Map(this.removeQueue);
+    this.removeQueue.clear();
 
-    for (const [filePath, propMap] of snapshot) {
-      if (this.writeGuard.has(filePath)) continue;
+    const affectedFiles = new Set([...writeSnapshot.keys(), ...removeSnapshot.keys()]);
 
+    for (const filePath of affectedFiles) {
       const tFile = this.app.vault.getAbstractFileByPath(filePath);
       if (!(tFile instanceof obsidian.TFile)) continue;
+
+      const propAdds = writeSnapshot.get(filePath);
+      const propRems = removeSnapshot.get(filePath);
+
+      // Clean out any conflicting adds that were queued for removal or tombstoned
+      if (propAdds) {
+        for (const [addKey, addNames] of propAdds) {
+          for (const name of [...addNames]) {
+            const cleanName = bare(name).toLowerCase();
+            if (this.isTombstoned(tFile.basename, cleanName)) {
+              addNames.delete(name);
+              continue;
+            }
+            if (propRems) {
+              for (const [remKey, remNames] of propRems) {
+                if (remKey.toLowerCase() === addKey.toLowerCase() && remNames.has(cleanName)) {
+                  addNames.delete(name);
+                  break;
+                }
+              }
+            }
+          }
+        }
+      }
 
       this.writeGuard.add(filePath);
       try {
         await this.app.fileManager.processFrontMatter(tFile, fm => {
-          for (const [propKey, names] of propMap) {
-            const actualKey =
-              Object.keys(fm).find(k => k.toLowerCase() === propKey.toLowerCase()) || propKey;
+          // 1. Process Removals First
+          if (propRems) {
+            for (const [propKey, namesToRemove] of propRems) {
+              const actualKey =
+                Object.keys(fm).find(k => k.toLowerCase() === propKey.toLowerCase());
+              if (!actualKey || fm[actualKey] == null) continue;
 
-            for (const name of names) {
-              const linkText = `[[${name}]]`;
-              const lName = name.toLowerCase();
-
-              const has = v => {
-                if (!v) return false;
-                if (typeof v === "string") return bare(v).toLowerCase() === lName;
-                if (Array.isArray(v)) return v.some(i => typeof i === "string" && bare(i).toLowerCase() === lName);
-                if (typeof v === "object") return bare(v.link || "").toLowerCase() === lName;
+              const lowerNames = new Set([...namesToRemove].map(n => bare(n).toLowerCase()));
+              const isMatch = (val) => {
+                if (!val) return false;
+                if (typeof val === "string") return lowerNames.has(bare(val).toLowerCase());
+                if (typeof val === "object") {
+                  const target = val.link || val.path || val.name || val.displayText || "";
+                  return lowerNames.has(bare(target).toLowerCase());
+                }
                 return false;
               };
 
               const cur = fm[actualKey];
-              if (cur == null) {
-                fm[actualKey] = linkText;
-              } else if (Array.isArray(cur)) {
-                if (!cur.some(has)) cur.push(linkText);
-              } else if (!has(cur)) {
-                fm[actualKey] = [cur, linkText];
+              if (Array.isArray(cur)) {
+                const filtered = cur.filter(item => !isMatch(item) && item != null && (typeof item !== "string" || item.trim() !== ""));
+                fm[actualKey] = filtered.length === 0 ? [] : filtered;
+              } else if (isMatch(cur)) {
+                fm[actualKey] = null;
               }
             }
           }
+
+          // 2. Process Additions
+          if (propAdds) {
+            for (const [propKey, names] of propAdds) {
+              const actualKey =
+                Object.keys(fm).find(k => k.toLowerCase() === propKey.toLowerCase()) || propKey;
+
+              for (const name of names) {
+                if (this.isTombstoned(tFile.basename, name)) continue;
+                const linkText = `[[${name}]]`;
+                const lName = name.toLowerCase();
+
+                const has = v => {
+                  if (!v) return false;
+                  if (typeof v === "string") return bare(v).toLowerCase() === lName;
+                  if (Array.isArray(v)) return v.some(i => typeof i === "string" && bare(i).toLowerCase() === lName);
+                  if (typeof v === "object") return bare(v.link || v.path || v.name || "").toLowerCase() === lName;
+                  return false;
+                };
+
+                const cur = fm[actualKey];
+                if (cur == null || (typeof cur === "string" && !cur.trim())) {
+                  fm[actualKey] = linkText;
+                } else if (Array.isArray(cur)) {
+                  const cleanArr = cur.filter(item => item != null && (typeof item !== "string" || item.trim() !== ""));
+                  if (!cleanArr.some(has)) cleanArr.push(linkText);
+                  fm[actualKey] = cleanArr;
+                } else if (!has(cur)) {
+                  fm[actualKey] = [cur, linkText];
+                }
+              }
+            }
+          }
+
+          const newSnap = this.extractRelationsSnapshot(tFile, { frontmatter: fm });
+          if (newSnap) this.fileRelationsSnapshot.set(filePath, newSnap);
         });
       } catch (_) {}
 
-      // Force active leaf view to repaint properties panel instantly without page switching
-      const activeLeaf = this.app.workspace.activeLeaf;
-      const activeFile = this.app.workspace.getActiveFile();
-      if (activeFile && activeFile.path === filePath) {
-        try {
-          this.app.metadataCache.trigger("changed", tFile);
-          if (activeLeaf && activeLeaf.view) {
-            if (typeof activeLeaf.view.requestSave === "function") activeLeaf.view.requestSave();
-            if (activeLeaf.view.previewMode && typeof activeLeaf.view.previewMode.rerender === "function") {
-              activeLeaf.view.previewMode.rerender(true);
-            }
+      setTimeout(() => this.writeGuard.delete(filePath), 1000);
+    }
+  }
+
+  /* ─── Reciprocal & Transitive Removal Logic ─── */
+
+  removeMatchingLinks(targetFile, allowedKeySet, nameToRemove) {
+    if (!targetFile || !(targetFile instanceof obsidian.TFile)) return;
+    const lName = bare(nameToRemove).toLowerCase();
+    if (!lName) return;
+
+    this.addTombstone(targetFile.basename, nameToRemove);
+
+    const cache = this.app.metadataCache.getFileCache(targetFile);
+    const fm = cache ? cache.frontmatter : null;
+
+    if (fm) {
+      for (const k of Object.keys(fm)) {
+        if (k === "position") continue;
+        if (allowedKeySet && allowedKeySet.size > 0 && !allowedKeySet.has(k.toLowerCase())) continue;
+        const links = linksUnderProp(cache, k);
+        if (links.some(n => bare(n).toLowerCase() === lName)) {
+          this.enqueueRemoval(targetFile, k, nameToRemove);
+        }
+      }
+    } else if (allowedKeySet && allowedKeySet.size > 0) {
+      for (const k of allowedKeySet) {
+        this.enqueueRemoval(targetFile, k, nameToRemove);
+      }
+    }
+  }
+
+  applyRemovals(source, oldSnap, newSnap, cache) {
+    const S = this.settings;
+    const diffRemoved = (oldList, newList) => (oldList || []).filter(x => !(newList || []).includes(x));
+
+    const getPropKeys = (k1, k2, fallbackNames = []) => {
+      const list = [...this.getPropList(S[k1]), ...this.getPropList(S[k2])];
+      if (list.length > 0) {
+        return new Set(list.map(s => s.toLowerCase().trim()).filter(Boolean));
+      }
+      return new Set((fallbackNames || []).map(s => s.toLowerCase().trim()).filter(Boolean));
+    };
+
+    const fatKeys  = getPropKeys("fatherProperty", "fatherProps", ["father"]);
+    const motKeys  = getPropKeys("motherProperty", "motherProps", ["mother"]);
+    const parentKeys = new Set([...fatKeys, ...motKeys]);
+
+    const husbKeys = getPropKeys("husbandProperty", "husbandProps", ["husband"]);
+    const wifeKeys = getPropKeys("wifeProperty", "wifeProps", ["wife"]);
+    const spouseKeys = new Set([...husbKeys, ...wifeKeys]);
+
+    const sonKeys  = getPropKeys("sonProperty", "sonProps", ["son"]);
+    const dauKeys  = getPropKeys("daughterProperty", "daughterProps", ["daughter"]);
+    const childKeys = new Set([...sonKeys, ...dauKeys]);
+
+    const broKeys  = getPropKeys("brotherProperty", "brotherProps", ["brother"]);
+    const sisKeys  = getPropKeys("sisterProperty", "sisterProps", ["sister"]);
+    const siblingKeys = new Set([...broKeys, ...sisKeys]);
+
+    // 1. Custom Pairs Removal
+    for (const rel of (this.settings.relations || [])) {
+      if (rel.enabled === false || !rel.forward || !rel.inverse) continue;
+      const fLo = rel.forward.toLowerCase().trim();
+      const iLo = rel.inverse.toLowerCase().trim();
+      if (!fLo || !iLo) continue;
+      const oldRel = (oldSnap.custom || []).find(r => r.forward.toLowerCase().trim() === fLo && r.inverse.toLowerCase().trim() === iLo) || { forwardTargets: [], inverseTargets: [] };
+      const newRel = (newSnap.custom || []).find(r => r.forward.toLowerCase().trim() === fLo && r.inverse.toLowerCase().trim() === iLo) || { forwardTargets: [], inverseTargets: [] };
+      for (const targetName of diffRemoved(oldRel.forwardTargets, newRel.forwardTargets)) {
+        const target = this.resolve(targetName, source.path);
+        if (target && target.path !== source.path) {
+          this.removeMatchingLinks(target, new Set([iLo]), source.basename);
+          this.addTombstone(target.basename, source.basename);
+        }
+      }
+      if (fLo !== iLo) {
+        for (const targetName of diffRemoved(oldRel.inverseTargets, newRel.inverseTargets)) {
+          const target = this.resolve(targetName, source.path);
+          if (target && target.path !== source.path) {
+            this.removeMatchingLinks(target, new Set([fLo]), source.basename);
+            this.addTombstone(target.basename, source.basename);
           }
-        } catch (_) {}
+        }
+      }
+    }
+
+    // 2. Spouse Removal (Husband / Wife) - unlinks spouses from each other
+    const removedWives = diffRemoved(oldSnap.wives, newSnap.wives).filter(wName => {
+      const wLo = bare(wName).toLowerCase();
+      return !(newSnap.husbands || []).some(x => bare(x).toLowerCase() === wLo);
+    });
+    for (const wName of removedWives) {
+      const cleanW = bare(wName);
+      const target = this.resolve(cleanW, source.path);
+      if (target && target.path !== source.path) {
+        this.removeMatchingLinks(target, spouseKeys, source.basename);
+        this.removeMatchingLinks(source, spouseKeys, target.basename);
+        this.addTombstone(target.basename, source.basename);
+      } else {
+        this.removeMatchingLinks(source, spouseKeys, cleanW);
+        this.addTombstone(cleanW, source.basename);
+      }
+    }
+    const removedHusbands = diffRemoved(oldSnap.husbands, newSnap.husbands).filter(hName => {
+      const hLo = bare(hName).toLowerCase();
+      return !(newSnap.wives || []).some(x => bare(x).toLowerCase() === hLo);
+    });
+    for (const hName of removedHusbands) {
+      const cleanH = bare(hName);
+      const target = this.resolve(cleanH, source.path);
+      if (target && target.path !== source.path) {
+        this.removeMatchingLinks(target, spouseKeys, source.basename);
+        this.removeMatchingLinks(source, spouseKeys, target.basename);
+        this.addTombstone(target.basename, source.basename);
+      } else {
+        this.removeMatchingLinks(source, spouseKeys, cleanH);
+        this.addTombstone(cleanH, source.basename);
+      }
+    }
+
+    // 3. Child Removal from Parent (e.g. Parent removed Child)
+    const rawRemovedChildren = [
+      ...diffRemoved(oldSnap.sons, newSnap.sons),
+      ...diffRemoved(oldSnap.daughters, newSnap.daughters)
+    ];
+    const removedChildren = rawRemovedChildren.filter(cName => {
+      const cLo = bare(cName).toLowerCase();
+      const stillInSons = (newSnap.sons || []).some(x => bare(x).toLowerCase() === cLo);
+      const stillInDaughters = (newSnap.daughters || []).some(x => bare(x).toLowerCase() === cLo);
+      return !stillInSons && !stillInDaughters;
+    });
+
+    for (const cName of removedChildren) {
+      const cleanC = bare(cName);
+      const targetChild = this.resolve(cleanC, source.path);
+      const childCache = targetChild ? this.app.metadataCache.getFileCache(targetChild) : null;
+      const childSnap = (targetChild && childCache) ? this.extractRelationsSnapshot(targetChild, childCache) : null;
+
+      // Immediately tombstone parent <-> child
+      this.addTombstone(source.basename, cleanC);
+
+      // 3a. In child note: remove source from parent properties
+      if (targetChild && targetChild.path !== source.path) {
+        this.removeMatchingLinks(targetChild, parentKeys, source.basename);
+      }
+      this.removeMatchingLinks(source, childKeys, cleanC);
+
+      // 3b. Find co-parents
+      const coParents = new Set([
+        ...(oldSnap.wives || []), ...(newSnap.wives || []),
+        ...(oldSnap.husbands || []), ...(newSnap.husbands || [])
+      ]);
+      if (childSnap) {
+        (childSnap.mothers || []).forEach(m => coParents.add(bare(m)));
+        (childSnap.fathers || []).forEach(f => coParents.add(bare(f)));
+      }
+      for (const [snapPath, snap] of this.fileRelationsSnapshot) {
+        if ((snap.sons || []).includes(cleanC.toLowerCase()) || (snap.daughters || []).includes(cleanC.toLowerCase())) {
+          const f = this.app.vault.getAbstractFileByPath(snapPath);
+          if (f && f instanceof obsidian.TFile && f.basename.toLowerCase() !== source.basename.toLowerCase()) {
+            coParents.add(f.basename);
+          }
+        }
+      }
+      coParents.delete(source.basename);
+      coParents.delete(source.basename.toLowerCase());
+      coParents.delete(cleanC);
+      coParents.delete(cleanC.toLowerCase());
+
+      // Remove child from all co-parents' child properties, and co-parents from child
+      for (const cpName of coParents) {
+        const cleanCP = bare(cpName);
+        this.addTombstone(cleanCP, cleanC);
+        const cpFile = this.resolve(cleanCP, source.path);
+        if (cpFile && cpFile.path !== source.path) {
+          this.removeMatchingLinks(cpFile, childKeys, cleanC);
+        }
+        if (targetChild) {
+          this.removeMatchingLinks(targetChild, parentKeys, cpFile ? cpFile.basename : cleanCP);
+        }
+        // If parents share NO other children, separate them as spouses
+        if (!this.hasSharedChildrenRemaining(source.basename, cpFile ? cpFile.basename : cleanCP, cleanC, source.path)) {
+          this.removeMatchingLinks(source, spouseKeys, cpFile ? cpFile.basename : cleanCP);
+          if (cpFile) this.removeMatchingLinks(cpFile, spouseKeys, source.basename);
+          this.addTombstone(source.basename, cpFile ? cpFile.basename : cleanCP);
+        }
       }
 
-      setTimeout(() => this.writeGuard.delete(filePath), 80);
+      // 3c. Sibling Cleanup: Remove child from all sibling notes, and siblings from child
+      const allSiblings = new Set([
+        ...(oldSnap.sons || []), ...(newSnap.sons || []),
+        ...(oldSnap.daughters || []), ...(newSnap.daughters || [])
+      ]);
+      if (childSnap) {
+        (childSnap.brothers || []).forEach(b => allSiblings.add(bare(b)));
+        (childSnap.sisters || []).forEach(s => allSiblings.add(bare(s)));
+      }
+      for (const cpName of coParents) {
+        const cpFile = this.resolve(cpName, source.path);
+        if (cpFile) {
+          const cpCache = this.app.metadataCache.getFileCache(cpFile);
+          const cpSnap = cpCache ? this.extractRelationsSnapshot(cpFile, cpCache) : null;
+          if (cpSnap) {
+            (cpSnap.sons || []).forEach(n => allSiblings.add(bare(n)));
+            (cpSnap.daughters || []).forEach(n => allSiblings.add(bare(n)));
+          }
+        }
+      }
+      for (const [snapPath, snap] of this.fileRelationsSnapshot) {
+        if ((snap.brothers || []).includes(cleanC.toLowerCase()) || (snap.sisters || []).includes(cleanC.toLowerCase())) {
+          const f = this.app.vault.getAbstractFileByPath(snapPath);
+          if (f && f instanceof obsidian.TFile) allSiblings.add(f.basename);
+        }
+      }
+      allSiblings.delete(cleanC);
+      allSiblings.delete(cleanC.toLowerCase());
+      allSiblings.delete(source.basename);
+      allSiblings.delete(source.basename.toLowerCase());
+
+      for (const sibName of allSiblings) {
+        const cleanSib = bare(sibName);
+        this.addTombstone(cleanSib, cleanC);
+        const sibFile = this.resolve(cleanSib, source.path);
+        if (sibFile) {
+          this.removeMatchingLinks(sibFile, siblingKeys, cleanC);
+          if (targetChild) {
+            this.removeMatchingLinks(targetChild, siblingKeys, sibFile.basename);
+          }
+        }
+      }
+    }
+
+    // 4. Parent Removal from Child (e.g. Child removed Parent)
+    const rawRemovedParents = [
+      ...diffRemoved(oldSnap.fathers, newSnap.fathers),
+      ...diffRemoved(oldSnap.mothers, newSnap.mothers)
+    ];
+    const removedParents = rawRemovedParents.filter(pName => {
+      const pLo = bare(pName).toLowerCase();
+      const stillInFathers = (newSnap.fathers || []).some(x => bare(x).toLowerCase() === pLo);
+      const stillInMothers = (newSnap.mothers || []).some(x => bare(x).toLowerCase() === pLo);
+      return !stillInFathers && !stillInMothers;
+    });
+
+    for (const pName of removedParents) {
+      const cleanP = bare(pName);
+      const targetParent = this.resolve(cleanP, source.path);
+      const pCache = targetParent ? this.app.metadataCache.getFileCache(targetParent) : null;
+      const pSnap = (targetParent && pCache) ? this.extractRelationsSnapshot(targetParent, pCache) : null;
+
+      // Immediately tombstone child <-> parent
+      this.addTombstone(source.basename, cleanP);
+
+      // 4a. In parent note: remove child (source) from child properties
+      if (targetParent && targetParent.path !== source.path) {
+        this.removeMatchingLinks(targetParent, childKeys, source.basename);
+      }
+      this.removeMatchingLinks(source, parentKeys, cleanP);
+
+      // 4b. Find co-parents
+      const coParents = new Set([
+        ...(pSnap?.wives || []), ...(pSnap?.husbands || []),
+        ...(oldSnap.fathers || []), ...(newSnap.fathers || []),
+        ...(oldSnap.mothers || []), ...(newSnap.mothers || [])
+      ]);
+      for (const [snapPath, snap] of this.fileRelationsSnapshot) {
+        if ((snap.sons || []).includes(source.basename.toLowerCase()) || (snap.daughters || []).includes(source.basename.toLowerCase())) {
+          const f = this.app.vault.getAbstractFileByPath(snapPath);
+          if (f && f instanceof obsidian.TFile && f.basename.toLowerCase() !== cleanP.toLowerCase()) {
+            coParents.add(f.basename);
+          }
+        }
+      }
+      coParents.delete(cleanP);
+      coParents.delete(cleanP.toLowerCase());
+      coParents.delete(source.basename);
+      coParents.delete(source.basename.toLowerCase());
+
+      for (const cpName of coParents) {
+        const cleanCP = bare(cpName);
+        this.addTombstone(source.basename, cleanCP);
+        const cpFile = this.resolve(cleanCP, source.path);
+        if (cpFile && cpFile.path !== source.path) {
+          // Remove child from co-parent note
+          this.removeMatchingLinks(cpFile, childKeys, source.basename);
+        }
+        // Auto-delink co-parent from child note
+        this.removeMatchingLinks(source, parentKeys, cpFile ? cpFile.basename : cleanCP);
+        // If parents share NO other children, separate them as spouses
+        if (!this.hasSharedChildrenRemaining(cleanP, cpFile ? cpFile.basename : cleanCP, source.basename, source.path)) {
+          if (targetParent) this.removeMatchingLinks(targetParent, spouseKeys, cpFile ? cpFile.basename : cleanCP);
+          if (cpFile) this.removeMatchingLinks(cpFile, spouseKeys, targetParent ? targetParent.basename : cleanP);
+          this.addTombstone(cleanP, cpFile ? cpFile.basename : cleanCP);
+        }
+      }
+
+      // 4c. Sibling Cleanup
+      const allSiblings = new Set([
+        ...(pSnap?.sons || []), ...(pSnap?.daughters || []),
+        ...(oldSnap.brothers || []), ...(newSnap.brothers || []),
+        ...(oldSnap.sisters || []), ...(newSnap.sisters || [])
+      ]);
+      for (const cpName of coParents) {
+        const cpFile = this.resolve(cpName, source.path);
+        if (cpFile) {
+          const cpCache = this.app.metadataCache.getFileCache(cpFile);
+          const cpSnap = cpCache ? this.extractRelationsSnapshot(cpFile, cpCache) : null;
+          if (cpSnap) {
+            (cpSnap.sons || []).forEach(n => allSiblings.add(bare(n)));
+            (cpSnap.daughters || []).forEach(n => allSiblings.add(bare(n)));
+          }
+        }
+      }
+      allSiblings.delete(source.basename);
+      allSiblings.delete(source.basename.toLowerCase());
+
+      for (const sibName of allSiblings) {
+        const cleanSib = bare(sibName);
+        this.addTombstone(source.basename, cleanSib);
+        const sibFile = this.resolve(cleanSib, source.path);
+        if (sibFile) {
+          this.removeMatchingLinks(sibFile, siblingKeys, source.basename);
+          this.removeMatchingLinks(source, siblingKeys, sibFile.basename);
+        }
+      }
+    }
+
+    // 5. Sibling Removal from Sibling (Option A: Full Family Detachment)
+    const rawRemovedSiblings = [
+      ...diffRemoved(oldSnap.brothers, newSnap.brothers),
+      ...diffRemoved(oldSnap.sisters, newSnap.sisters)
+    ];
+    const removedSiblings = rawRemovedSiblings.filter(sibName => {
+      const sLo = bare(sibName).toLowerCase();
+      const stillInBrothers = (newSnap.brothers || []).some(x => bare(x).toLowerCase() === sLo);
+      const stillInSisters = (newSnap.sisters || []).some(x => bare(x).toLowerCase() === sLo);
+      return !stillInBrothers && !stillInSisters;
+    });
+
+    for (const sibName of removedSiblings) {
+      const cleanSib = bare(sibName);
+      const targetSib = this.resolve(cleanSib, source.path);
+      const sibCache = targetSib ? this.app.metadataCache.getFileCache(targetSib) : null;
+      const sibSnap = (targetSib && sibCache) ? this.extractRelationsSnapshot(targetSib, sibCache) : null;
+
+      // Immediately tombstone sibling <-> sibling
+      this.addTombstone(source.basename, cleanSib);
+
+      // 5a. Remove from source and vice versa
+      if (targetSib && targetSib.path !== source.path) {
+        this.removeMatchingLinks(targetSib, siblingKeys, source.basename);
+        this.removeMatchingLinks(source, siblingKeys, targetSib.basename);
+      } else {
+        this.removeMatchingLinks(source, siblingKeys, cleanSib);
+      }
+
+      // 5b. Find all parents of the family
+      const parents = new Set([
+        ...(oldSnap.fathers || []), ...(newSnap.fathers || []),
+        ...(oldSnap.mothers || []), ...(newSnap.mothers || [])
+      ]);
+      if (sibSnap) {
+        (sibSnap.fathers || []).forEach(f => parents.add(bare(f)));
+        (sibSnap.mothers || []).forEach(m => parents.add(bare(m)));
+      }
+      for (const [snapPath, snap] of this.fileRelationsSnapshot) {
+        if ((snap.sons || []).includes(cleanSib.toLowerCase()) || (snap.daughters || []).includes(cleanSib.toLowerCase())) {
+          const f = this.app.vault.getAbstractFileByPath(snapPath);
+          if (f && f instanceof obsidian.TFile) parents.add(f.basename);
+        }
+      }
+      parents.delete(cleanSib);
+      parents.delete(cleanSib.toLowerCase());
+      parents.delete(source.basename);
+      parents.delete(source.basename.toLowerCase());
+
+      // 5c. Remove detached sibling from all parents, and all parents from detached sibling
+      for (const pName of parents) {
+        const cleanP = bare(pName);
+        this.addTombstone(cleanP, cleanSib);
+        const pFile = this.resolve(cleanP, source.path);
+        if (pFile) {
+          this.removeMatchingLinks(pFile, childKeys, cleanSib);
+          if (targetSib) {
+            this.removeMatchingLinks(targetSib, parentKeys, pFile.basename);
+          }
+        }
+      }
+
+      // 5d. Remove detached sibling from other siblings, and other siblings from detached sibling
+      const otherSiblings = new Set([
+        ...(oldSnap.brothers || []), ...(newSnap.brothers || []),
+        ...(oldSnap.sisters || []), ...(newSnap.sisters || [])
+      ]);
+      if (sibSnap) {
+        (sibSnap.brothers || []).forEach(b => otherSiblings.add(bare(b)));
+        (sibSnap.sisters || []).forEach(s => otherSiblings.add(bare(s)));
+      }
+      otherSiblings.delete(cleanSib);
+      otherSiblings.delete(cleanSib.toLowerCase());
+      otherSiblings.delete(source.basename);
+      otherSiblings.delete(source.basename.toLowerCase());
+
+      for (const otherName of otherSiblings) {
+        const cleanOther = bare(otherName);
+        this.addTombstone(cleanOther, cleanSib);
+        const otherFile = this.resolve(cleanOther, source.path);
+        if (otherFile && otherFile.path !== source.path) {
+          this.removeMatchingLinks(otherFile, siblingKeys, cleanSib);
+          if (targetSib) {
+            this.removeMatchingLinks(targetSib, siblingKeys, otherFile.basename);
+          }
+        }
+      }
+
+      // 5e. If parents shared only this child, check if remaining parents have shared children
+      const pList = [...parents];
+      for (let i = 0; i < pList.length; i++) {
+        for (let j = i + 1; j < pList.length; j++) {
+          const p1 = pList[i];
+          const p2 = pList[j];
+          const cleanP1 = bare(p1);
+          const cleanP2 = bare(p2);
+          if (!this.hasSharedChildrenRemaining(cleanP1, cleanP2, cleanSib, source.path)) {
+            const f1 = this.resolve(cleanP1, source.path);
+            const f2 = this.resolve(cleanP2, source.path);
+            if (f1) this.removeMatchingLinks(f1, spouseKeys, f2 ? f2.basename : cleanP2);
+            if (f2) this.removeMatchingLinks(f2, spouseKeys, f1 ? f1.basename : cleanP1);
+            this.addTombstone(cleanP1, cleanP2);
+          }
+        }
+      }
     }
   }
 
   /* ─── event handlers ─── */
 
   onNoteChanged(file) {
-    if (this.writeGuard.has(file.path)) return;
-    if (!this.isIncluded(file)) return;
+    if (this.writeGuard.has(file.path)) return false;
+    if (!this.isIncluded(file)) return false;
     const cache = this.app.metadataCache.getFileCache(file);
-    if (!cache) return;
-    this.runSync(file, cache);
+    if (!cache) return false;
+    const oldSnap = this.fileRelationsSnapshot.get(file.path);
+    const newSnap = this.extractRelationsSnapshot(file, cache);
+
+    let hasRemovals = false;
+    let hasAdditions = false;
+
+    if (oldSnap && newSnap) {
+      const checkRemoved = (oldList, newList) => (oldList || []).some(x => !(newList || []).includes(x));
+      const checkAdded = (oldList, newList) => (newList || []).some(x => !(oldList || []).includes(x));
+
+      hasRemovals = checkRemoved(oldSnap.fathers, newSnap.fathers) ||
+                    checkRemoved(oldSnap.mothers, newSnap.mothers) ||
+                    checkRemoved(oldSnap.husbands, newSnap.husbands) ||
+                    checkRemoved(oldSnap.wives, newSnap.wives) ||
+                    checkRemoved(oldSnap.sons, newSnap.sons) ||
+                    checkRemoved(oldSnap.daughters, newSnap.daughters) ||
+                    checkRemoved(oldSnap.brothers, newSnap.brothers) ||
+                    checkRemoved(oldSnap.sisters, newSnap.sisters);
+
+      hasAdditions = checkAdded(oldSnap.fathers, newSnap.fathers) ||
+                     checkAdded(oldSnap.mothers, newSnap.mothers) ||
+                     checkAdded(oldSnap.husbands, newSnap.husbands) ||
+                     checkAdded(oldSnap.wives, newSnap.wives) ||
+                     checkAdded(oldSnap.sons, newSnap.sons) ||
+                     checkAdded(oldSnap.daughters, newSnap.daughters) ||
+                     checkAdded(oldSnap.brothers, newSnap.brothers) ||
+                     checkAdded(oldSnap.sisters, newSnap.sisters);
+
+      for (const rel of (this.settings.relations || [])) {
+        if (rel.enabled === false || !rel.forward || !rel.inverse) continue;
+        const fLo = rel.forward.toLowerCase().trim();
+        const iLo = rel.inverse.toLowerCase().trim();
+        if (!fLo || !iLo) continue;
+        const oldRel = (oldSnap.custom || []).find(r => r.forward.toLowerCase().trim() === fLo && r.inverse.toLowerCase().trim() === iLo) || { forwardTargets: [], inverseTargets: [] };
+        const newRel = (newSnap.custom || []).find(r => r.forward.toLowerCase().trim() === fLo && r.inverse.toLowerCase().trim() === iLo) || { forwardTargets: [], inverseTargets: [] };
+        if (checkRemoved(oldRel.forwardTargets, newRel.forwardTargets) || (fLo !== iLo && checkRemoved(oldRel.inverseTargets, newRel.inverseTargets))) hasRemovals = true;
+        if (checkAdded(oldRel.forwardTargets, newRel.forwardTargets) || (fLo !== iLo && checkAdded(oldRel.inverseTargets, newRel.inverseTargets))) hasAdditions = true;
+      }
+
+      // If user explicitly added a relation, remove any existing tombstone for it
+      if (hasAdditions) {
+        const diffAdd = (oldList, newList) => (newList || []).filter(x => !(oldList || []).includes(x));
+        const allAdded = [
+          ...diffAdd(oldSnap.fathers, newSnap.fathers),
+          ...diffAdd(oldSnap.mothers, newSnap.mothers),
+          ...diffAdd(oldSnap.husbands, newSnap.husbands),
+          ...diffAdd(oldSnap.wives, newSnap.wives),
+          ...diffAdd(oldSnap.sons, newSnap.sons),
+          ...diffAdd(oldSnap.daughters, newSnap.daughters),
+          ...diffAdd(oldSnap.brothers, newSnap.brothers),
+          ...diffAdd(oldSnap.sisters, newSnap.sisters)
+        ];
+        for (const rel of (this.settings.relations || [])) {
+          if (rel.enabled === false || !rel.forward || !rel.inverse) continue;
+          const fLo = rel.forward.toLowerCase().trim();
+          const iLo = rel.inverse.toLowerCase().trim();
+          if (!fLo || !iLo) continue;
+          const oldRel = (oldSnap.custom || []).find(r => r.forward.toLowerCase().trim() === fLo && r.inverse.toLowerCase().trim() === iLo) || { forwardTargets: [], inverseTargets: [] };
+          const newRel = (newSnap.custom || []).find(r => r.forward.toLowerCase().trim() === fLo && r.inverse.toLowerCase().trim() === iLo) || { forwardTargets: [], inverseTargets: [] };
+          allAdded.push(...diffAdd(oldRel.forwardTargets, newRel.forwardTargets));
+          if (fLo !== iLo) {
+            allAdded.push(...diffAdd(oldRel.inverseTargets, newRel.inverseTargets));
+          }
+        }
+        this.clearTombstonesFor(file.basename);
+        for (const addedName of allAdded) {
+          this.clearTombstonesFor(addedName);
+        }
+        const connectedFamily = [
+          ...(newSnap.fathers || []),
+          ...(newSnap.mothers || []),
+          ...(newSnap.husbands || []),
+          ...(newSnap.wives || []),
+          ...(newSnap.sons || []),
+          ...(newSnap.daughters || []),
+          ...(newSnap.brothers || []),
+          ...(newSnap.sisters || [])
+        ];
+        for (const cName of connectedFamily) {
+          this.clearTombstonesFor(cName);
+        }
+      }
+
+      // If note was created recently (within 10s), template application or initial setup must not unlink family:
+      if (this.isRecentlyCreated(file.path)) {
+        hasRemovals = false;
+        setTimeout(() => {
+          this.reconcileFamilyUnit(file.basename);
+          this.flush();
+        }, 100);
+      }
+
+      if (hasRemovals) {
+        this.applyRemovals(file, oldSnap, newSnap, cache);
+        this.flush();
+      }
+
+    }
+
+    if (newSnap) {
+      this.fileRelationsSnapshot.set(file.path, newSnap);
+    }
+
+    // Only runSync if new relations were added (or first load). Never runSync on pure property removals!
+    if (!oldSnap || hasAdditions) {
+      this.runSync(file, cache);
+      if (hasAdditions && oldSnap && newSnap) {
+        const diffAdd = (oldList, newList) => (newList || []).filter(x => !(oldList || []).includes(x));
+        const allAdded = [
+          ...diffAdd(oldSnap.fathers, newSnap.fathers),
+          ...diffAdd(oldSnap.mothers, newSnap.mothers),
+          ...diffAdd(oldSnap.husbands, newSnap.husbands),
+          ...diffAdd(oldSnap.wives, newSnap.wives),
+          ...diffAdd(oldSnap.sons, newSnap.sons),
+          ...diffAdd(oldSnap.daughters, newSnap.daughters),
+          ...diffAdd(oldSnap.brothers, newSnap.brothers),
+          ...diffAdd(oldSnap.sisters, newSnap.sisters)
+        ];
+        for (const addedName of allAdded) {
+          this.reconcileFamilyUnit(addedName);
+        }
+      }
+    }
+
+    return hasRemovals;
   }
 
   async onNoteRenamed(file, oldPath) {
@@ -4278,15 +6258,43 @@ class RelationsSuitePlugin extends obsidian.Plugin {
     setTimeout(() => this.onNoteCreated(file), 150);
   }
 
-  onNoteCreated(targetFile) {
-    for (const src of this.app.vault.getMarkdownFiles()) {
-      if (src.path === targetFile.path) continue;
-      if (!this.isIncluded(src)) continue;
-      const cache = this.app.metadataCache.getFileCache(src);
-      if (!cache || !cache.frontmatter) continue;
+  async onNoteCreated(targetFile) {
+    if (!targetFile || !(targetFile instanceof obsidian.TFile) || targetFile.extension !== "md") return;
+    const targetName = bare(targetFile.basename).toLowerCase();
+    if (!targetName) return;
 
-      this.runSync(src, cache);
+    this.clearTombstonesFor(targetFile.basename);
+
+    const targetCache = this.app.metadataCache.getFileCache(targetFile);
+    if (targetCache) {
+      const snap = this.extractRelationsSnapshot(targetFile, targetCache);
+      if (snap) this.fileRelationsSnapshot.set(targetFile.path, snap);
     }
+
+    this.reconcileFamilyUnit(targetFile.basename);
+
+    // Reconcile all notes that link to targetFile.basename (Blindspot 2)
+    const referrers = new Set();
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (file.path === targetFile.path || !this.isIncluded(file)) continue;
+      const c = this.app.metadataCache.getFileCache(file);
+      if (!c || !c.frontmatter) continue;
+      for (const k of Object.keys(c.frontmatter)) {
+        if (k === "position") continue;
+        if (linksUnderProp(c, k).some(n => bare(n).toLowerCase() === targetName)) {
+          referrers.add(file.basename);
+          break;
+        }
+      }
+    }
+    for (const refName of referrers) {
+      this.clearTombstonesFor(refName);
+      this.reconcileFamilyUnit(refName);
+    }
+
+    this.applyPairs(targetFile, targetCache);
+
+    await this.flush();
   }
 
   async syncAllVault() {
@@ -4297,6 +6305,7 @@ class RelationsSuitePlugin extends obsidian.Plugin {
       if (cache) this.runSync(file, cache);
     }
     await this.flush();
+    this.initRelationsSnapshot();
     new obsidian.Notice("Simple Relation Sync: done!");
   }
 
@@ -4304,311 +6313,646 @@ class RelationsSuitePlugin extends obsidian.Plugin {
 
   runSync(sourceFile, cache) {
     this.applyPairs(sourceFile, cache);
-    this.applyGenderSmartRelations(sourceFile, cache);
-    if (this.settings.autoLinkSiblings)        this.applySiblings(sourceFile, cache);
-    if (this.settings.autoLinkSpouseCoParent)  this.applyCoParent(sourceFile, cache);
+    this.reconcileFamilyUnit(sourceFile.basename);
   }
 
   applyPairs(source, cache) {
-    for (const rel of (this.settings.relations || [])) {
-      if (rel.enabled === false || !rel.forward || !rel.inverse) continue;
-      for (const [srcKey, dstKey] of [[rel.forward, rel.inverse], [rel.inverse, rel.forward]]) {
-        for (const name of linksUnderProp(cache, srcKey)) {
+    if (!source || !(source instanceof obsidian.TFile)) return;
+    const activeRelations = (this.settings.relations || []).filter(
+      rel => rel.enabled !== false && rel.forward && rel.inverse && rel.forward.trim() && rel.inverse.trim()
+    );
+    if (activeRelations.length === 0) return;
+
+    const sourceNameLo = bare(source.basename).toLowerCase();
+
+    // 1. Outgoing custom relations from source
+    if (cache && cache.frontmatter) {
+      for (const rel of activeRelations) {
+        const fwd = rel.forward.trim();
+        const inv = rel.inverse.trim();
+
+        for (const name of linksUnderProp(cache, fwd)) {
           const target = this.resolve(name, source.path);
-          if (target && target.path !== source.path && this.isIncluded(target))
-            this.enqueue(target, dstKey, source.basename);
+          if (target && target.path !== source.path && (this.isIncluded(target) || this.isIncluded(source)))
+            this.enqueue(target, inv, source.basename);
+        }
+
+        if (fwd.toLowerCase() !== inv.toLowerCase()) {
+          for (const name of linksUnderProp(cache, inv)) {
+            const target = this.resolve(name, source.path);
+            if (target && target.path !== source.path && (this.isIncluded(target) || this.isIncluded(source)))
+              this.enqueue(target, fwd, source.basename);
+          }
+        }
+      }
+    }
+
+    // 2. Incoming custom relations to source from vault notes (Blindspots 9 & 10)
+    for (const otherFile of this.app.vault.getMarkdownFiles()) {
+      if (otherFile.path === source.path) continue;
+      if (!this.isIncluded(otherFile) && !this.isIncluded(source)) continue;
+      const oCache = this.app.metadataCache.getFileCache(otherFile);
+      if (!oCache || !oCache.frontmatter) continue;
+
+      for (const rel of activeRelations) {
+        const fwd = rel.forward.trim();
+        const inv = rel.inverse.trim();
+
+        if (linksUnderProp(oCache, fwd).some(n => bare(n).toLowerCase() === sourceNameLo)) {
+          this.enqueue(source, inv, otherFile.basename);
+        }
+        if (fwd.toLowerCase() !== inv.toLowerCase()) {
+          if (linksUnderProp(oCache, inv).some(n => bare(n).toLowerCase() === sourceNameLo)) {
+            this.enqueue(source, fwd, otherFile.basename);
+          }
         }
       }
     }
   }
 
-  /* ─── Gender-Smart Automatic Relations Engine ─── */
+  /* ─── Unified Nuclear Family Unit Reconciliation Engine ─── */
 
-  applyGenderSmartRelations(source, cache) {
+  reconcileFamilyUnit(personName) {
+    if (!personName) return;
+    const cleanP = bare(personName);
+    const pLo = cleanP.toLowerCase();
+    if (!pLo) return;
+
     const S = this.settings;
-    const srcGender = this.getGender(cache);
-
-    const getFirst = v => Array.isArray(v) ? (v[0] || "").trim() : String(v || "").trim();
-    const broKey  = getFirst(S.brotherProperty);
-    const sisKey  = getFirst(S.sisterProperty);
-    const fatKey  = getFirst(S.fatherProperty);
-    const motKey  = getFirst(S.motherProperty);
-    const husbKey = getFirst(S.husbandProperty);
-    const wifeKey = getFirst(S.wifeProperty);
-    const sonKey  = getFirst(S.sonProperty);
-    const dauKey  = getFirst(S.daughterProperty);
-
-    // 1. Sibling Linking
-    const processSibling = (sourcePropKey) => {
-      if (!sourcePropKey) return;
-      for (const name of linksUnderProp(cache, sourcePropKey)) {
-        const target = this.resolve(name, source.path);
-        if (!target || target.path === source.path || !this.isIncluded(target)) continue;
-
-        let targetProp = null;
-        if (srcGender === "male") targetProp = broKey;
-        else if (srcGender === "female") targetProp = sisKey;
-        else targetProp = (sourcePropKey.toLowerCase() === broKey.toLowerCase()) ? broKey : sisKey;
-
-        if (targetProp) this.enqueue(target, targetProp, source.basename);
-      }
+    const getPropListUnified = (k1, k2, fallbacks = []) => {
+      const list = [...this.getPropList(S[k1]), ...this.getPropList(S[k2])];
+      if (list.length > 0) return [...new Set(list)];
+      return fallbacks;
     };
-    processSibling(broKey);
-    processSibling(sisKey);
 
-    // 2. Spouse Linking
-    if (wifeKey && husbKey) {
-      for (const name of linksUnderProp(cache, wifeKey)) {
-        const target = this.resolve(name, source.path);
-        if (target && target.path !== source.path && this.isIncluded(target))
-          this.enqueue(target, husbKey, source.basename);
-      }
-      for (const name of linksUnderProp(cache, husbKey)) {
-        const target = this.resolve(name, source.path);
-        if (target && target.path !== source.path && this.isIncluded(target))
-          this.enqueue(target, wifeKey, source.basename);
-      }
+    const fatKeys  = getPropListUnified("fatherProperty", "fatherProps", ["father"]);
+    const motKeys  = getPropListUnified("motherProperty", "motherProps", ["mother"]);
+    const husbKeys = getPropListUnified("husbandProperty", "husbandProps", ["husband"]);
+    const wifeKeys = getPropListUnified("wifeProperty", "wifeProps", ["wife"]);
+    const sonKeys  = getPropListUnified("sonProperty", "sonProps", ["son"]);
+    const dauKeys  = getPropListUnified("daughterProperty", "daughterProps", ["daughter"]);
+    const broKeys  = getPropListUnified("brotherProperty", "brotherProps", ["brother"]);
+    const sisKeys  = getPropListUnified("sisterProperty", "sisterProps", ["sister"]);
+
+    const fatKey = fatKeys[0] || "";
+    const motKey = motKeys[0] || "";
+    const husbKey = husbKeys[0] || "";
+    const wifeKey = wifeKeys[0] || "";
+    const sonKey = sonKeys[0] || "";
+    const dauKey = dauKeys[0] || "";
+    const broKey = broKeys[0] || "";
+    const sisKey = sisKeys[0] || "";
+
+    const pFile = this.resolve(cleanP);
+    const pCache = pFile ? this.app.metadataCache.getFileCache(pFile) : null;
+    const pGender = this.getFileGender(pFile || cleanP);
+
+    // ── CLUSTER A: When person is a CHILD (reconcile parents, co-parents, and siblings) ──
+    const fathers = new Set();
+    const mothers = new Set();
+    const siblings = new Set();
+    siblings.add(cleanP);
+
+    // 1. Direct parents & siblings on person's note
+    if (pCache && pCache.frontmatter) {
+      for (const fk of fatKeys) linksUnderProp(pCache, fk).forEach(n => fathers.add(bare(n)));
+      for (const mk of motKeys) linksUnderProp(pCache, mk).forEach(n => mothers.add(bare(n)));
+      for (const bk of broKeys) linksUnderProp(pCache, bk).forEach(n => siblings.add(bare(n)));
+      for (const sk of sisKeys) linksUnderProp(pCache, sk).forEach(n => siblings.add(bare(n)));
     }
 
-    // 3. Child -> Parent
-    const processChildToParent = (sourceParentPropKey) => {
-      if (!sourceParentPropKey) return;
-      for (const name of linksUnderProp(cache, sourceParentPropKey)) {
-        const targetParent = this.resolve(name, source.path);
-        if (!targetParent || targetParent.path === source.path || !this.isIncluded(targetParent)) continue;
+    // 2. Vault notes listing person as son/daughter or brother/sister
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (!this.isIncluded(file)) continue;
+      const c = this.app.metadataCache.getFileCache(file);
+      if (!c || !c.frontmatter) continue;
 
-        let childPropOnParent = null;
-        if (srcGender === "male") childPropOnParent = sonKey;
-        else if (srcGender === "female") childPropOnParent = dauKey;
-        else childPropOnParent = sonKey || dauKey;
-
-        if (childPropOnParent) this.enqueue(targetParent, childPropOnParent, source.basename);
+      let listsAsSon = false;
+      let listsAsDau = false;
+      for (const sk of sonKeys) {
+        if (linksUnderProp(c, sk).some(x => bare(x).toLowerCase() === pLo)) listsAsSon = true;
       }
-    };
-    processChildToParent(fatKey);
-    processChildToParent(motKey);
-
-    // 3b. Auto Link Parents as Spouses (Child note lists both Father & Mother)
-    if (fatKey && motKey && wifeKey && husbKey) {
-      const fatherNames = linksUnderProp(cache, fatKey);
-      const motherNames = linksUnderProp(cache, motKey);
-      for (const fName of fatherNames) {
-        const fFile = this.resolve(fName, source.path);
-        for (const mName of motherNames) {
-          const mFile = this.resolve(mName, source.path);
-          if (fFile && fFile.path !== source.path && this.isIncluded(fFile)) {
-            this.enqueue(fFile, wifeKey, mName);
-          }
-          if (mFile && mFile.path !== source.path && this.isIncluded(mFile)) {
-            this.enqueue(mFile, husbKey, fName);
-          }
-        }
-      }
-    }
-
-    // 3c. Full Family Tree Transitive Graph (Child note connects its Siblings ↔ Parents & Siblings ↔ Siblings)
-    const fatherNames = fatKey ? linksUnderProp(cache, fatKey) : [];
-    const motherNames = motKey ? linksUnderProp(cache, motKey) : [];
-    const brotherNames = broKey ? linksUnderProp(cache, broKey) : [];
-    const sisterNames = sisKey ? linksUnderProp(cache, sisKey) : [];
-
-    const hasParents = fatherNames.length || motherNames.length;
-    const hasSiblings = brotherNames.length || sisterNames.length;
-
-    if (hasParents && hasSiblings) {
-      // Connect Father to Brothers & Sisters
-      for (const fName of fatherNames) {
-        const fFile = this.resolve(fName, source.path);
-        for (const bName of brotherNames) {
-          if (fFile && fFile.path !== source.path && this.isIncluded(fFile) && sonKey) {
-            this.enqueue(fFile, sonKey, bName);
-          }
-          const bFile = this.resolve(bName, source.path);
-          if (bFile && bFile.path !== source.path && this.isIncluded(bFile) && fatKey) {
-            this.enqueue(bFile, fatKey, fName);
-          }
-        }
-        for (const sName of sisterNames) {
-          if (fFile && fFile.path !== source.path && this.isIncluded(fFile) && dauKey) {
-            this.enqueue(fFile, dauKey, sName);
-          }
-          const sFile = this.resolve(sName, source.path);
-          if (sFile && sFile.path !== source.path && this.isIncluded(sFile) && fatKey) {
-            this.enqueue(sFile, fatKey, fName);
-          }
-        }
+      for (const dk of dauKeys) {
+        if (linksUnderProp(c, dk).some(x => bare(x).toLowerCase() === pLo)) listsAsDau = true;
       }
 
-      // Connect Mother to Brothers & Sisters
-      for (const mName of motherNames) {
-        const mFile = this.resolve(mName, source.path);
-        for (const bName of brotherNames) {
-          if (mFile && mFile.path !== source.path && this.isIncluded(mFile) && sonKey) {
-            this.enqueue(mFile, sonKey, bName);
-          }
-          const bFile = this.resolve(bName, source.path);
-          if (bFile && bFile.path !== source.path && this.isIncluded(bFile) && motKey) {
-            this.enqueue(bFile, motKey, mName);
-          }
-        }
-        for (const sName of sisterNames) {
-          if (mFile && mFile.path !== source.path && this.isIncluded(mFile) && dauKey) {
-            this.enqueue(mFile, dauKey, sName);
-          }
-          const sFile = this.resolve(sName, source.path);
-          if (sFile && sFile.path !== source.path && this.isIncluded(sFile) && motKey) {
-            this.enqueue(sFile, motKey, mName);
-          }
-        }
-      }
-
-      // Cross-link Brothers & Sisters to each other
-      for (const bName of brotherNames) {
-        const bFile = this.resolve(bName, source.path);
-        if (bFile && bFile.path !== source.path && this.isIncluded(bFile)) {
-          if (broKey) brotherNames.forEach(otherB => { if (otherB.toLowerCase() !== bName.toLowerCase()) this.enqueue(bFile, broKey, otherB); });
-          if (sisKey) sisterNames.forEach(sName => this.enqueue(bFile, sisKey, sName));
-        }
-      }
-      for (const sName of sisterNames) {
-        const sFile = this.resolve(sName, source.path);
-        if (sFile && sFile.path !== source.path && this.isIncluded(sFile)) {
-          if (broKey) brotherNames.forEach(bName => this.enqueue(sFile, broKey, bName));
-          if (sisKey) sisterNames.forEach(otherS => { if (otherS.toLowerCase() !== sName.toLowerCase()) this.enqueue(sFile, sisKey, otherS); });
-        }
-      }
-    }
-
-    // 4. Parent -> Child
-    const processParentToChild = (sourceChildPropKey) => {
-      if (!sourceChildPropKey) return;
-      for (const name of linksUnderProp(cache, sourceChildPropKey)) {
-        const targetChild = this.resolve(name, source.path);
-        if (!targetChild || targetChild.path === source.path || !this.isIncluded(targetChild)) continue;
-
-        let parentPropOnChild = null;
-        if (srcGender === "male") parentPropOnChild = fatKey;
-        else if (srcGender === "female") parentPropOnChild = motKey;
+      if (listsAsSon || listsAsDau) {
+        const fg = this.getFileGender(file);
+        if (fg === "male") fathers.add(file.basename);
+        else if (fg === "female") mothers.add(file.basename);
         else {
-          const hasWife = wifeKey && linksUnderProp(cache, wifeKey).length > 0;
-          const hasHusb = husbKey && linksUnderProp(cache, husbKey).length > 0;
-          if (hasWife) parentPropOnChild = fatKey;
-          else if (hasHusb) parentPropOnChild = motKey;
+          if (wifeKeys.some(k => linksUnderProp(c, k).length > 0)) fathers.add(file.basename);
+          else if (husbKeys.some(k => linksUnderProp(c, k).length > 0)) mothers.add(file.basename);
+          else if (mothers.has(file.basename)) {
+            // Already identified as mother
+          } else if (fathers.has(file.basename)) {
+            // Already identified as father
+          } else if (fathers.size > 0 && !fathers.has(file.basename)) {
+            mothers.add(file.basename);
+          } else if (mothers.size > 0 && !mothers.has(file.basename)) {
+            fathers.add(file.basename);
+          } else {
+            fathers.add(file.basename);
+          }
         }
-
-        if (parentPropOnChild) this.enqueue(targetChild, parentPropOnChild, source.basename);
       }
-    };
-    processParentToChild(sonKey);
-    processParentToChild(dauKey);
-  }
 
-  applySiblings(parentFile, cache) {
-    const S = this.settings;
-    const getFirst = v => Array.isArray(v) ? (v[0] || "").trim() : String(v || "").trim();
-    const sonKey = getFirst(S.sonProperty);
-    const dauKey = getFirst(S.daughterProperty);
-    const broKey = getFirst(S.brotherProperty);
-    const sisKey = getFirst(S.sisterProperty);
-
-    const sonNames = sonKey ? linksUnderProp(cache, sonKey) : [];
-    const dauNames = dauKey ? linksUnderProp(cache, dauKey) : [];
-    if (!sonNames.length && !dauNames.length) return;
-
-    const parentGender = this.getGender(cache);
-    const wifeKey = getFirst(S.wifeProperty);
-    const husbKey = getFirst(S.husbandProperty);
-    const fatKey  = getFirst(S.fatherProperty);
-    const motKey  = getFirst(S.motherProperty);
-
-    let parentLabel = null;
-    if (parentGender === "male") parentLabel = fatKey;
-    else if (parentGender === "female") parentLabel = motKey;
-    else if (wifeKey && linksUnderProp(cache, wifeKey).length > 0) parentLabel = fatKey;
-    else if (husbKey && linksUnderProp(cache, husbKey).length > 0) parentLabel = motKey;
-
-    for (const sName of sonNames) {
-      const sFile = this.resolve(sName, parentFile.path);
-      if (!sFile || !this.isIncluded(sFile)) continue;
-
-      if (parentLabel) this.enqueue(sFile, parentLabel, parentFile.basename);
-      if (broKey) sonNames.forEach(n => { if (n.toLowerCase() !== sFile.basename.toLowerCase()) this.enqueue(sFile, broKey, n); });
-      if (sisKey) dauNames.forEach(n => this.enqueue(sFile, sisKey, n));
-    }
-
-    for (const dName of dauNames) {
-      const dFile = this.resolve(dName, parentFile.path);
-      if (!dFile || !this.isIncluded(dFile)) continue;
-
-      if (parentLabel) this.enqueue(dFile, parentLabel, parentFile.basename);
-      if (broKey) sonNames.forEach(n => this.enqueue(dFile, broKey, n));
-      if (sisKey) dauNames.forEach(n => { if (n.toLowerCase() !== dFile.basename.toLowerCase()) this.enqueue(dFile, sisKey, n); });
-    }
-  }
-
-  applyCoParent(parentFile, cache) {
-    const S = this.settings;
-    const getFirst = v => Array.isArray(v) ? (v[0] || "").trim() : String(v || "").trim();
-    const fatKey  = getFirst(S.fatherProperty);
-    const motKey  = getFirst(S.motherProperty);
-    const husbKey = getFirst(S.husbandProperty);
-    const wifeKey = getFirst(S.wifeProperty);
-    const sonKey  = getFirst(S.sonProperty);
-    const dauKey  = getFirst(S.daughterProperty);
-
-    const sonNames = sonKey ? linksUnderProp(cache, sonKey) : [];
-    const dauNames = dauKey ? linksUnderProp(cache, dauKey) : [];
-    if (!sonNames.length && !dauNames.length) return;
-
-    const wifeNames = wifeKey ? linksUnderProp(cache, wifeKey) : [];
-    for (const wName of wifeNames) {
-      const wifeFile = this.resolve(wName, parentFile.path);
-      if (wifeFile && husbKey && this.isIncluded(wifeFile))
-        this.enqueue(wifeFile, husbKey, parentFile.basename);
-
-      for (const cName of sonNames) {
-        const cFile = this.resolve(cName, parentFile.path);
-        if (cFile && this.isIncluded(cFile)) {
-          if (fatKey) this.enqueue(cFile, fatKey, parentFile.basename);
-          if (motKey) this.enqueue(cFile, motKey, wName);
+      // Check if file lists person as brother or sister
+      for (const bk of [...broKeys, ...sisKeys]) {
+        if (linksUnderProp(c, bk).some(x => bare(x).toLowerCase() === pLo)) {
+          siblings.add(file.basename);
         }
-        if (wifeFile && sonKey && this.isIncluded(wifeFile))
-          this.enqueue(wifeFile, sonKey, cName);
-      }
-      for (const cName of dauNames) {
-        const cFile = this.resolve(cName, parentFile.path);
-        if (cFile && this.isIncluded(cFile)) {
-          if (fatKey) this.enqueue(cFile, fatKey, parentFile.basename);
-          if (motKey) this.enqueue(cFile, motKey, wName);
-        }
-        if (wifeFile && dauKey && this.isIncluded(wifeFile))
-          this.enqueue(wifeFile, dauKey, cName);
       }
     }
 
-    const husbNames = husbKey ? linksUnderProp(cache, husbKey) : [];
-    for (const hName of husbNames) {
-      const husbFile = this.resolve(hName, parentFile.path);
-      if (husbFile && wifeKey && this.isIncluded(husbFile))
-        this.enqueue(husbFile, wifeKey, parentFile.basename);
+    // Iterative Transitive Loop for Cluster A (Blindspots 3, 4, 7, 11)
+    for (let pass = 0; pass < 5; pass++) {
+      const prevFathersCount = fathers.size;
+      const prevMothersCount = mothers.size;
+      const prevSiblingsCount = siblings.size;
 
-      for (const cName of sonNames) {
-        const cFile = this.resolve(cName, parentFile.path);
-        if (cFile && this.isIncluded(cFile)) {
-          if (motKey) this.enqueue(cFile, motKey, parentFile.basename);
-          if (fatKey) this.enqueue(cFile, fatKey, hName);
+      // 2b. Inherit parents and peer siblings from siblings (in-memory)
+      if (this.settings.autoLinkSiblings !== false) {
+        for (const sibName of [...siblings]) {
+          if (bare(sibName).toLowerCase() === pLo) continue;
+          const sLo = bare(sibName).toLowerCase();
+          const sFile = this.resolve(sibName);
+          if (sFile) {
+            const sc = this.app.metadataCache.getFileCache(sFile);
+            if (sc && sc.frontmatter) {
+              for (const fk of fatKeys) linksUnderProp(sc, fk).forEach(n => fathers.add(bare(n)));
+              for (const mk of motKeys) linksUnderProp(sc, mk).forEach(n => mothers.add(bare(n)));
+              for (const bk of broKeys) linksUnderProp(sc, bk).forEach(n => siblings.add(bare(n)));
+              for (const sk of sisKeys) linksUnderProp(sc, sk).forEach(n => siblings.add(bare(n)));
+            }
+          }
+          for (const [snapPath, snap] of this.fileRelationsSnapshot) {
+            if ((snap.sons || []).includes(sLo) || (snap.daughters || []).includes(sLo)) {
+              const p = this.app.vault.getAbstractFileByPath(snapPath);
+              if (p && p instanceof obsidian.TFile) {
+                const fg = this.getFileGender(p);
+                if (fg === "female") mothers.add(p.basename);
+                else if (fg === "male") fathers.add(p.basename);
+                else if (mothers.has(p.basename)) {}
+                else if (fathers.has(p.basename)) {}
+                else if (fathers.size > 0 && !fathers.has(p.basename)) mothers.add(p.basename);
+                else if (mothers.size > 0 && !mothers.has(p.basename)) fathers.add(p.basename);
+                else fathers.add(p.basename);
+              }
+            }
+          }
         }
-        if (husbFile && sonKey && this.isIncluded(husbFile))
-          this.enqueue(husbFile, sonKey, cName);
       }
-      for (const cName of dauNames) {
-        const cFile = this.resolve(cName, parentFile.path);
-        if (cFile && this.isIncluded(cFile)) {
-          if (motKey) this.enqueue(cFile, motKey, parentFile.basename);
-          if (fatKey) this.enqueue(cFile, fatKey, hName);
+
+      // 3. Include spouses of found parents as co-parents (in-memory)
+      if (this.settings.autoLinkSpouseCoParent !== false) {
+        for (const fName of [...fathers]) {
+          const fFile = this.resolve(fName);
+          if (fFile) {
+            const fc = this.app.metadataCache.getFileCache(fFile);
+            if (fc) {
+              for (const wk of wifeKeys) linksUnderProp(fc, wk).forEach(w => mothers.add(bare(w)));
+            }
+          }
         }
-        if (husbFile && dauKey && this.isIncluded(husbFile))
-          this.enqueue(husbFile, dauKey, cName);
+        for (const mName of [...mothers]) {
+          const mFile = this.resolve(mName);
+          if (mFile) {
+            const mc = this.app.metadataCache.getFileCache(mFile);
+            if (mc) {
+              for (const hk of husbKeys) linksUnderProp(mc, hk).forEach(h => fathers.add(bare(h)));
+            }
+          }
+        }
+      }
+
+      // 4. Gather children of all found parents into siblings (in-memory)
+      const allParentNames = [...new Set([...fathers, ...mothers])];
+      for (const pName of allParentNames) {
+        const parentFile = this.resolve(pName);
+        if (parentFile) {
+          const pc = this.app.metadataCache.getFileCache(parentFile);
+          if (pc) {
+            for (const sk of sonKeys) linksUnderProp(pc, sk).forEach(n => siblings.add(bare(n)));
+            for (const dk of dauKeys) linksUnderProp(pc, dk).forEach(n => siblings.add(bare(n)));
+          }
+        }
+      }
+
+      // Batched Vault Scan for Cluster A (Steps 2b, 3, 4) in a single pass
+      const sibLowers = new Set([...siblings].map(s => bare(s).toLowerCase()).filter(s => s !== pLo));
+      const fatLowers = new Set([...fathers].map(f => bare(f).toLowerCase()));
+      const motLowers = new Set([...mothers].map(m => bare(m).toLowerCase()));
+      const parLowers = new Set([...fatLowers, ...motLowers]);
+      const checkCoParents = this.settings.autoLinkSpouseCoParent !== false;
+
+      for (const file of this.app.vault.getMarkdownFiles()) {
+        if (!this.isIncluded(file)) continue;
+        const c = this.app.metadataCache.getFileCache(file);
+        if (!c || !c.frontmatter) continue;
+
+        // Step 2b: Vault notes listing any sibling as son/daughter or peer sibling
+        if (sibLowers.size > 0 && this.settings.autoLinkSiblings !== false) {
+          let listsSibAsSon = false;
+          let listsSibAsDau = false;
+          for (const sk of sonKeys) {
+            if (linksUnderProp(c, sk).some(x => sibLowers.has(bare(x).toLowerCase()))) listsSibAsSon = true;
+          }
+          for (const dk of dauKeys) {
+            if (linksUnderProp(c, dk).some(x => sibLowers.has(bare(x).toLowerCase()))) listsSibAsDau = true;
+          }
+          if (listsSibAsSon || listsSibAsDau) {
+            const fg = this.getFileGender(file);
+            if (fg === "male") fathers.add(file.basename);
+            else if (fg === "female") mothers.add(file.basename);
+            else {
+              if (wifeKeys.some(k => linksUnderProp(c, k).length > 0)) fathers.add(file.basename);
+              else if (husbKeys.some(k => linksUnderProp(c, k).length > 0)) mothers.add(file.basename);
+              else if (mothers.has(file.basename)) {}
+              else if (fathers.has(file.basename)) {}
+              else if (fathers.size > 0 && !fathers.has(file.basename)) mothers.add(file.basename);
+              else if (mothers.size > 0 && !mothers.has(file.basename)) fathers.add(file.basename);
+              else fathers.add(file.basename);
+            }
+          }
+          for (const bk of [...broKeys, ...sisKeys]) {
+            if (linksUnderProp(c, bk).some(x => sibLowers.has(bare(x).toLowerCase()))) {
+              siblings.add(file.basename);
+            }
+          }
+        }
+
+        // Step 3: Vault notes listing found parents as husband or wife (Blindspot 7)
+        if (checkCoParents) {
+          if (fatLowers.size > 0) {
+            for (const hk of husbKeys) {
+              if (linksUnderProp(c, hk).some(x => fatLowers.has(bare(x).toLowerCase()))) mothers.add(file.basename);
+            }
+          }
+          if (motLowers.size > 0) {
+            for (const wk of wifeKeys) {
+              if (linksUnderProp(c, wk).some(x => motLowers.has(bare(x).toLowerCase()))) fathers.add(file.basename);
+            }
+          }
+        }
+
+        // Step 4: Vault notes listing found parents as father or mother (gather into siblings)
+        if (parLowers.size > 0) {
+          for (const fk of fatKeys) {
+            if (linksUnderProp(c, fk).some(x => parLowers.has(bare(x).toLowerCase()))) siblings.add(file.basename);
+          }
+          for (const mk of motKeys) {
+            if (linksUnderProp(c, mk).some(x => parLowers.has(bare(x).toLowerCase()))) siblings.add(file.basename);
+          }
+        }
+      }
+
+      fathers.delete(cleanP);
+      mothers.delete(cleanP);
+
+      // Mutual Exclusivity: resolve any conflict between fathers and mothers (Blindspot 11)
+      for (const m of [...mothers]) {
+        const mLo = bare(m).toLowerCase();
+        for (const f of [...fathers]) {
+          if (bare(f).toLowerCase() === mLo) {
+            const fg = this.getFileGender(f);
+            if (fg === "male") {
+              mothers.delete(m);
+            } else if (fg === "female") {
+              fathers.delete(f);
+            } else {
+              const listedAsFather = pCache && pCache.frontmatter && fatKeys.some(k => linksUnderProp(pCache, k).some(x => bare(x).toLowerCase() === mLo));
+              const listedAsMother = pCache && pCache.frontmatter && motKeys.some(k => linksUnderProp(pCache, k).some(x => bare(x).toLowerCase() === mLo));
+              if (listedAsFather && !listedAsMother) {
+                mothers.delete(m);
+              } else if (listedAsMother && !listedAsFather) {
+                fathers.delete(f);
+              } else {
+                // Check siblings' frontmatter for gender hints
+                let sibVoteFather = 0;
+                let sibVoteMother = 0;
+                for (const sibName of siblings) {
+                  const sFile = this.resolve(sibName);
+                  if (sFile) {
+                    const sc = this.app.metadataCache.getFileCache(sFile);
+                    if (sc && sc.frontmatter) {
+                      if (fatKeys.some(k => linksUnderProp(sc, k).some(x => bare(x).toLowerCase() === mLo))) sibVoteFather++;
+                      if (motKeys.some(k => linksUnderProp(sc, k).some(x => bare(x).toLowerCase() === mLo))) sibVoteMother++;
+                    }
+                  }
+                }
+                if (sibVoteFather > sibVoteMother) {
+                  mothers.delete(m);
+                } else if (sibVoteMother > sibVoteFather) {
+                  fathers.delete(f);
+                } else if (fathers.size > mothers.size) {
+                  fathers.delete(f);
+                } else {
+                  mothers.delete(m);
+                }
+              }
+            }
+          }
+        }
+      }
+
+      for (const p of [...fathers, ...mothers]) siblings.delete(p);
+
+      if (fathers.size === prevFathersCount && mothers.size === prevMothersCount && siblings.size === prevSiblingsCount) {
+        break;
+      }
+    }
+
+    const allParentNamesFinal = [...new Set([...fathers, ...mothers])];
+    for (const p of allParentNamesFinal) siblings.delete(p);
+
+    for (const f of [...fathers]) {
+      if (this.isTombstoned(cleanP, f)) fathers.delete(f);
+    }
+    for (const m of [...mothers]) {
+      if (this.isTombstoned(cleanP, m)) mothers.delete(m);
+    }
+    for (const s of [...siblings]) {
+      if (bare(s).toLowerCase() !== pLo && this.isTombstoned(cleanP, s)) siblings.delete(s);
+    }
+
+    // Apply Cluster A reconciliation IF we have parents or multiple siblings
+    if (fathers.size > 0 || mothers.size > 0 || siblings.size > 1) {
+      // a) Parents as spouses:
+      if (this.settings.autoLinkSpouseCoParent !== false) {
+        for (const fName of fathers) {
+          const fFile = this.resolve(fName);
+          for (const mName of mothers) {
+            const mFile = this.resolve(mName);
+            if (!this.isTombstoned(fName, mName)) {
+              if (fFile && (wifeKey || husbKey)) this.enqueue(fFile, wifeKey || husbKey, mName);
+              if (mFile && (husbKey || wifeKey)) this.enqueue(mFile, husbKey || wifeKey, fName);
+            }
+          }
+        }
+      }
+
+      // b) Parents <-> Children:
+      for (const sibName of siblings) {
+        const sibFile = this.resolve(sibName);
+        const sibGender = this.getFileGender(sibFile || sibName);
+        const childPropOnParent = (sibGender === "female") ? (dauKey || sonKey) : (sonKey || dauKey);
+
+        for (const fName of fathers) {
+          if (!this.isTombstoned(sibName, fName)) {
+            if (sibFile && (fatKey || motKey)) this.enqueue(sibFile, fatKey || motKey, fName);
+            const fFile = this.resolve(fName);
+            if (fFile && childPropOnParent) this.enqueue(fFile, childPropOnParent, sibName);
+          }
+        }
+        for (const mName of mothers) {
+          if (!this.isTombstoned(sibName, mName)) {
+            if (sibFile && (motKey || fatKey)) this.enqueue(sibFile, motKey || fatKey, mName);
+            const mFile = this.resolve(mName);
+            if (mFile && childPropOnParent) this.enqueue(mFile, childPropOnParent, sibName);
+          }
+        }
+      }
+
+      // c) Siblings <-> Siblings:
+      if (this.settings.autoLinkSiblings !== false) {
+        const sibArray = [...siblings];
+        for (let i = 0; i < sibArray.length; i++) {
+          for (let j = i + 1; j < sibArray.length; j++) {
+            const s1 = sibArray[i];
+            const s2 = sibArray[j];
+            if (bare(s1).toLowerCase() === bare(s2).toLowerCase()) continue;
+            if (this.isTombstoned(s1, s2)) continue;
+
+            const f1 = this.resolve(s1);
+            const f2 = this.resolve(s2);
+            const g1 = this.getFileGender(f1 || s1);
+            const g2 = this.getFileGender(f2 || s2);
+
+            const propOn1 = (g2 === "female") ? (sisKey || broKey) : (broKey || sisKey);
+            const propOn2 = (g1 === "female") ? (sisKey || broKey) : (broKey || sisKey);
+
+            if (f1 && propOn1) this.enqueue(f1, propOn1, s2);
+            if (f2 && propOn2) this.enqueue(f2, propOn2, s1);
+          }
+        }
+      }
+    }
+
+    // ── CLUSTER B: When person is a PARENT (reconcile spouses and own children) ──
+    const spouses = new Set();
+    const children = new Set();
+
+    if (pCache && pCache.frontmatter) {
+      for (const wk of wifeKeys) linksUnderProp(pCache, wk).forEach(n => spouses.add(bare(n)));
+      for (const hk of husbKeys) linksUnderProp(pCache, hk).forEach(n => spouses.add(bare(n)));
+      for (const sk of sonKeys) linksUnderProp(pCache, sk).forEach(n => children.add(bare(n)));
+      for (const dk of dauKeys) linksUnderProp(pCache, dk).forEach(n => children.add(bare(n)));
+    }
+
+    // Vault notes listing person as father/mother or husband/wife
+    for (const file of this.app.vault.getMarkdownFiles()) {
+      if (!this.isIncluded(file)) continue;
+      const c = this.app.metadataCache.getFileCache(file);
+      if (!c || !c.frontmatter) continue;
+
+      for (const fk of fatKeys) {
+        if (linksUnderProp(c, fk).some(x => bare(x).toLowerCase() === pLo)) children.add(file.basename);
+      }
+      for (const mk of motKeys) {
+        if (linksUnderProp(c, mk).some(x => bare(x).toLowerCase() === pLo)) children.add(file.basename);
+      }
+      for (const wk of wifeKeys) {
+        if (linksUnderProp(c, wk).some(x => bare(x).toLowerCase() === pLo)) spouses.add(file.basename);
+      }
+      for (const hk of husbKeys) {
+        if (linksUnderProp(c, hk).some(x => bare(x).toLowerCase() === pLo)) spouses.add(file.basename);
+      }
+    }
+
+    // Children from spouses & Co-parents from children (Blindspots 1 & 8)
+    if (this.settings.autoLinkSpouseCoParent !== false) {
+      // 1. Children from spouses (in-memory)
+      for (const spName of [...spouses]) {
+        if (bare(spName).toLowerCase() === pLo) continue;
+        const spFile = this.resolve(spName);
+        if (spFile) {
+          const spCache = this.app.metadataCache.getFileCache(spFile);
+          if (spCache) {
+            for (const sk of sonKeys) linksUnderProp(spCache, sk).forEach(n => children.add(bare(n)));
+            for (const dk of dauKeys) linksUnderProp(spCache, dk).forEach(n => children.add(bare(n)));
+          }
+        }
+      }
+
+      // 2. Co-parents from children (in-memory - Blindspot 1)
+      for (const cName of [...children]) {
+        if (bare(cName).toLowerCase() === pLo) continue;
+        const cFile = this.resolve(cName);
+        if (cFile) {
+          const cc = this.app.metadataCache.getFileCache(cFile);
+          if (cc && cc.frontmatter) {
+            for (const fk of fatKeys) {
+              linksUnderProp(cc, fk).forEach(p => {
+                const pClean = bare(p);
+                if (pClean.toLowerCase() !== pLo) spouses.add(pClean);
+              });
+            }
+            for (const mk of motKeys) {
+              linksUnderProp(cc, mk).forEach(p => {
+                const pClean = bare(p);
+                if (pClean.toLowerCase() !== pLo) spouses.add(pClean);
+              });
+            }
+          }
+        }
+      }
+
+      // 3. Batched Vault Scan for Cluster B (Blindspots 1 & 8)
+      const spLowers = new Set([...spouses].map(s => bare(s).toLowerCase()).filter(s => s !== pLo));
+      const childLowers = new Set([...children].map(c => bare(c).toLowerCase()).filter(c => c !== pLo));
+
+      if (spLowers.size > 0 || childLowers.size > 0) {
+        for (const file of this.app.vault.getMarkdownFiles()) {
+          if (!this.isIncluded(file)) continue;
+          const c = this.app.metadataCache.getFileCache(file);
+          if (!c || !c.frontmatter) continue;
+
+          // Notes listing spouse as father/mother -> add to children (Blindspot 8)
+          if (spLowers.size > 0) {
+            for (const fk of fatKeys) {
+              if (linksUnderProp(c, fk).some(x => spLowers.has(bare(x).toLowerCase()))) children.add(file.basename);
+            }
+            for (const mk of motKeys) {
+              if (linksUnderProp(c, mk).some(x => spLowers.has(bare(x).toLowerCase()))) children.add(file.basename);
+            }
+          }
+
+          // Notes listing child as son/daughter -> add parent to spouses (Blindspot 1)
+          if (childLowers.size > 0 && bare(file.basename).toLowerCase() !== pLo) {
+            let isParentOfChild = false;
+            for (const sk of sonKeys) {
+              if (linksUnderProp(c, sk).some(x => childLowers.has(bare(x).toLowerCase()))) isParentOfChild = true;
+            }
+            for (const dk of dauKeys) {
+              if (linksUnderProp(c, dk).some(x => childLowers.has(bare(x).toLowerCase()))) isParentOfChild = true;
+            }
+            if (isParentOfChild) {
+              spouses.add(file.basename);
+            }
+          }
+        }
+      }
+
+      for (const sp of [...spouses]) {
+        if (this.isTombstoned(cleanP, sp)) spouses.delete(sp);
+      }
+      for (const c of [...children]) {
+        if (this.isTombstoned(cleanP, c)) children.delete(c);
+      }
+      spouses.delete(cleanP);
+      children.delete(cleanP);
+    }
+
+    // Apply Cluster B reconciliation
+    if (spouses.size > 0 || children.size > 0) {
+      // a) Person <-> Spouses:
+      for (const spName of spouses) {
+        if (bare(spName).toLowerCase() === pLo) continue;
+        if (this.isTombstoned(cleanP, spName)) continue;
+
+        const spFile = this.resolve(spName);
+        const spGender = this.getFileGender(spFile || spName);
+
+        if (pGender === "male") {
+          if (pFile && (wifeKey || husbKey)) this.enqueue(pFile, wifeKey || husbKey, spName);
+          if (spFile && (husbKey || wifeKey)) this.enqueue(spFile, husbKey || wifeKey, cleanP);
+        } else if (pGender === "female") {
+          if (pFile && (husbKey || wifeKey)) this.enqueue(pFile, husbKey || wifeKey, spName);
+          if (spFile && (wifeKey || husbKey)) this.enqueue(spFile, wifeKey || husbKey, cleanP);
+        } else {
+          if (spGender === "female") {
+            if (pFile && (wifeKey || husbKey)) this.enqueue(pFile, wifeKey || husbKey, spName);
+            if (spFile && (husbKey || wifeKey)) this.enqueue(spFile, husbKey || wifeKey, cleanP);
+          } else if (spGender === "male") {
+            if (pFile && (husbKey || wifeKey)) this.enqueue(pFile, husbKey || wifeKey, spName);
+            if (spFile && (wifeKey || husbKey)) this.enqueue(spFile, wifeKey || husbKey, cleanP);
+          } else {
+            if (pFile && (wifeKey || husbKey)) this.enqueue(pFile, wifeKey || husbKey, spName);
+            if (spFile && (husbKey || wifeKey)) this.enqueue(spFile, husbKey || wifeKey, cleanP);
+          }
+        }
+      }
+
+      // b) Parents <-> Children:
+      const allParentsB = [cleanP, ...spouses];
+      for (const cName of children) {
+        if (bare(cName).toLowerCase() === pLo) continue;
+        const cFile = this.resolve(cName);
+        const cGender = this.getFileGender(cFile || cName);
+        const childKeyOnP = (cGender === "female") ? (dauKey || sonKey) : (sonKey || dauKey);
+
+        for (const par of allParentsB) {
+          if (this.isTombstoned(par, cName)) continue;
+          const parFile = this.resolve(par);
+          const parGender = this.getFileGender(parFile || par);
+          const parLo = bare(par).toLowerCase();
+
+          const cCache = cFile ? this.app.metadataCache.getFileCache(cFile) : null;
+          let parKeyOnC = null;
+          if (cCache && cCache.frontmatter && motKeys.some(k => linksUnderProp(cCache, k).some(x => bare(x).toLowerCase() === parLo))) {
+            parKeyOnC = motKey;
+          } else if (cCache && cCache.frontmatter && fatKeys.some(k => linksUnderProp(cCache, k).some(x => bare(x).toLowerCase() === parLo))) {
+            parKeyOnC = fatKey;
+          } else if (parGender === "female") {
+            parKeyOnC = motKey || fatKey;
+          } else if (parGender === "male") {
+            parKeyOnC = fatKey || motKey;
+          } else {
+            // Unknown gender: check if other parent is known
+            const otherPar = allParentsB.find(p => bare(p).toLowerCase() !== parLo);
+            let otherGender = otherPar ? this.getFileGender(otherPar) : "unknown";
+            if (otherGender === "unknown" && cCache && cCache.frontmatter && otherPar) {
+              const otherLo = bare(otherPar).toLowerCase();
+              if (fatKeys.some(k => linksUnderProp(cCache, k).some(x => bare(x).toLowerCase() === otherLo))) otherGender = "male";
+              else if (motKeys.some(k => linksUnderProp(cCache, k).some(x => bare(x).toLowerCase() === otherLo))) otherGender = "female";
+            }
+            if (otherGender === "male") {
+              parKeyOnC = motKey || fatKey;
+            } else if (otherGender === "female") {
+              parKeyOnC = fatKey || motKey;
+            } else {
+              parKeyOnC = fatKey || motKey;
+            }
+          }
+
+          if (cFile && parKeyOnC) this.enqueue(cFile, parKeyOnC, par);
+          if (parFile && childKeyOnP) this.enqueue(parFile, childKeyOnP, cName);
+        }
+      }
+
+      // c) Children <-> Children (Siblings):
+      if (this.settings.autoLinkSiblings !== false) {
+        const childArr = [...children];
+        for (let i = 0; i < childArr.length; i++) {
+          for (let j = i + 1; j < childArr.length; j++) {
+            const c1 = childArr[i];
+            const c2 = childArr[j];
+            if (bare(c1).toLowerCase() === bare(c2).toLowerCase()) continue;
+            if (this.isTombstoned(c1, c2)) continue;
+
+            const f1 = this.resolve(c1);
+            const f2 = this.resolve(c2);
+            const g1 = this.getFileGender(f1 || c1);
+            const g2 = this.getFileGender(f2 || c2);
+
+            const propOn1 = (g2 === "female") ? (sisKey || broKey) : (broKey || sisKey);
+            const propOn2 = (g1 === "female") ? (sisKey || broKey) : (broKey || sisKey);
+
+            if (f1 && propOn1) this.enqueue(f1, propOn1, c2);
+            if (f2 && propOn2) this.enqueue(f2, propOn2, c1);
+          }
+        }
       }
     }
   }
