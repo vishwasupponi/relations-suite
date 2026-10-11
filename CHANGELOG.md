@@ -2,6 +2,12 @@
 
 All notable changes to the **Relations Suite** plugin will be documented in this file.
 
+## [1.0.3] - 12-10-2026
+
+### Fixed & Improved
+- **Obsidian Guidelines Compliance**:
+  - Refactored visual styling rules to strictly comply with Obsidian Developer Guidelines, ensuring seamless theme compatibility and passing automated review checks.
+
 ## [1.0.2] - 12-10-2026
 
 ### Fixed & Improved
