@@ -4,6 +4,10 @@
 [![Obsidian](https://img.shields.io/badge/Obsidian-v1.4.0%2B-7C3AED.svg)](https://obsidian.md)
 [![License: MIT](https://img.shields.io/badge/License-MIT-10b981.svg)](LICENSE)
 
+<p align="center">
+  <img src="https://github.com/user-attachments/assets/1f8277ff-7b5a-442d-a6cd-5dcfd9c1c69b" alt="Relations Suite Demo" width="100%" />
+</p>
+
 > [!NOTE]
 > **Safe & Non-Destructive**:
 > - **Visualizers (Family Tree & Graph)** operate strictly at the UI display level and **never modify, edit, or write to any files**.
